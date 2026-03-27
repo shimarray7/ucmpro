@@ -6046,6 +6046,8 @@ function importSave(){
         }
         G = parsed;
         if(!G._slot) G._slot = 1;
+        // Restore evolved CPU club state (ratings/divisions) into CLUBS array
+        applyCpuState();
         // Run migrations (same as loadSlot)
         if(G.squad){
           G.squad = G.squad.filter(p => p != null && typeof p === 'object' && p.name);
@@ -6131,6 +6133,8 @@ function loadSlot(slot){
         const _cr = CLUBS.find(c=>c.id===G.clubId);
         if(_cr) _cr.div = G.clubDiv;
       }
+      // Restore evolved CPU club ratings and divisions (mutated in memory, not saved in CLUBS)
+      applyCpuState();
       // Migration: add morale to players from old saves
       if(G.squad){
         // Sanitize: remove null/undefined entries (JSON may serialize undefined as null)
@@ -15081,6 +15085,48 @@ function simulateCpuMovement(playerPos, playerDiv) {
   }
 }
 
+// ── CPU Club Evolution ───────────────────────────────────────────────────────
+// Called at the start of each new season to simulate CPU squads evolving.
+// Ratings drift toward each division's typical level (+/- random noise to
+// represent transfers, youth development, and squad changes).
+// State is persisted in G.cpuRatings / G.cpuDivs so it survives reloads.
+function evolveCpuClubs() {
+  if (!G.cpuRatings) G.cpuRatings = {};
+  if (!G.cpuDivs)    G.cpuDivs    = {};
+
+  // Division-based parameters: [target, min, max]
+  const DIV_PARAMS = { A: [79, 73, 87], B: [72, 64, 80], C: [65, 58, 74] };
+
+  CLUBS.forEach(cl => {
+    if (cl.id === G.clubId) return; // never touch the player's club
+
+    // Persist current division (already updated by simulateCpuMovement)
+    G.cpuDivs[cl.id] = cl.div;
+
+    const [target, min, max] = DIV_PARAMS[cl.div] || DIV_PARAMS['C'];
+    // Use the last evolved rating if available, otherwise fall back to static default
+    const current = G.cpuRatings[cl.id] !== undefined ? G.cpuRatings[cl.id] : cl.rating;
+    // 15% drift toward division target + random squad-change noise
+    const newRating = Math.round(
+      Math.max(min, Math.min(max, current + (target - current) * 0.15 + R(-2, 2)))
+    );
+    cl.rating = newRating;
+    G.cpuRatings[cl.id] = newRating;
+  });
+}
+
+// Restores persisted CPU ratings and divisions back into the CLUBS array.
+// Must be called after loading a save so teamStr() and schedule builds
+// use the correct evolved values, not the original static defaults.
+function applyCpuState() {
+  if (!G) return;
+  CLUBS.forEach(cl => {
+    if (cl.id === G.clubId) return;
+    if (G.cpuDivs    && G.cpuDivs[cl.id]    !== undefined) cl.div    = G.cpuDivs[cl.id];
+    if (G.cpuRatings && G.cpuRatings[cl.id] !== undefined) cl.rating = G.cpuRatings[cl.id];
+  });
+}
+
 function showSeasonEnd(){
   const sorted = [...G.table].sort((a,b)=>
     b.pts - a.pts || (b.gf-b.gc)-(a.gf-a.gc) || b.gf-a.gf
@@ -15274,6 +15320,9 @@ function startNextSeason(){
   el.classList.add('closing');
   setTimeout(()=>{
     el.classList.remove('open','closing');
+    // Evolve CPU squads before rebuilding the season (divisions already updated
+    // by simulateCpuMovement which ran in showSeasonEnd)
+    evolveCpuClubs();
     // Reset season data, keep squad/stadium/money
     const serieA = CLUBS.filter(c=>c.div===(G.clubDiv||'A'));
     G.season++;
