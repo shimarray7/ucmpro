@@ -14348,12 +14348,28 @@ function showResult(result, my, op, m){
       label+` · ${hc?.name||m.home} ${m.hg}–${m.ag} ${ac?.name||m.away}`;
   }
 
-  // Show minimal overlay then auto-dismiss
+  // Enrich overlay: scorers, MVP, cards, possession
+  const roScorers = document.getElementById('ro-scorers');
+  if(roScorers){
+    const scorersHtml = Object.entries(scorersList)
+      .map(([n,g])=>`⚽ ${n}${g>1?' ×'+g:''}`)
+      .join('   ');
+    roScorers.textContent = scorersHtml;
+  }
+  const roStats = document.getElementById('ro-stats');
+  if(roStats){
+    const parts = [];
+    if(yellowCards||redCards) parts.push(`🟨 ${yellowCards}  🟥 ${redCards}`);
+    if(mvp) parts.push(`⭐ MVP: ${mvp.name}`);
+    parts.push(`💪 ${myStr}% × ${oppStr}%`);
+    roStats.innerHTML = parts.map(p=>`<span>${p}</span>`).join('');
+  }
+  // Show overlay then auto-dismiss (5s — richer content needs more time)
   const el = document.getElementById('result-overlay');
   el.classList.remove('dismissing');
   el.classList.add('show');
   clearTimeout(_roTimer);
-  _roTimer = setTimeout(closeResult, 3500);
+  _roTimer = setTimeout(closeResult, 5000);
 }
 
 function closeResult(){
@@ -15352,14 +15368,31 @@ function startNextSeason(){
       // Contract ticks down every season
       if(p.contract > 0) p.contract--;
     });
-    // Warn about expiring/expired contracts
+    // Auto-release expired contracts
     const expired  = G.squad.filter(p=>p.contract<=0);
+    if(expired.length){
+      const expiredNames = expired.map(p=>p.name).join(', ');
+      G.squad = G.squad.filter(p=>p.contract>0);
+      G.inbox.push({id:Date.now(), type:'contrato', from:'Gestão', icon:'📋',
+        subject:`${expired.length} contrato(s) encerrado(s)`,
+        preview:`Liberados ao fim do contrato: ${expiredNames}.`,
+        round:G.round, body:`Os seguintes jogadores tiveram seus contratos encerrados no início da temporada ${G.season} e foram liberados automaticamente: <b>${expiredNames}</b>. Acesse o mercado para reforçar o elenco.`
+      });
+    }
+    // Warn about expiring contracts (1 season left)
     const expiring = G.squad.filter(p=>p.contract===1);
-    if(expired.length)  toast(`⚠️ ${expired.length} jogador(es) com contrato EXPIRADO! Renove ou perca de graça.`,'err',5000);
-    else if(expiring.length) toast(`📋 ${expiring.length} jogador(es) com contrato expirando esta temporada.`,'warn',4000);
-    // Promote youth player
-    const promoted = promoteYouth();
-    if(promoted) toast(`🌱 ${promoted.name} promovido da base! (${promoted.pos}, ${promoted.age} anos, nota ${promoted.rating})`,'ok');
+    if(expiring.length) toast(`📋 ${expiring.length} jogador(es) com contrato expirando esta temporada.`,'warn',4000);
+    // Promote youth players from all base levels
+    const promoted = promoteYouthAll();
+    if(promoted.length){
+      const promotedNames = promoted.map(p=>`${p.name} (${p.pos}, ${p.age}a, nota ${p.rating})`).join('; ');
+      G.inbox.push({id:Date.now()+1, type:'base', from:'Academia de Base', icon:'🌱',
+        subject:`${promoted.length} jovem(ns) promovido(s) para o elenco`,
+        preview:`${promoted.map(p=>p.name).join(', ')} promovido(s) da base.`,
+        round:G.round, body:`Os seguintes jovens talentos foram promovidos da base para o elenco profissional: <b>${promotedNames}</b>. Bem-vindos ao time!`
+      });
+      toast(`🌱 ${promoted.length} jovem(ns) promovido(s) da base!`, 'ok');
+    }
     // Renew market
     G.market = buildMarket();
     // Reset parallel competitions for new season
@@ -15501,6 +15534,53 @@ function promoteYouth(){
     return youth;
   }
   return null;
+}
+
+// Promote youth players from all academy levels (Sub-20 guaranteed, Sub-17/15 chance-based)
+function promoteYouthAll(){
+  const promoted = [];
+
+  // Sub-20: 1 guaranteed player (as before)
+  if(G.squad.length < 28){
+    const p = promoteYouth();
+    if(p) promoted.push(p);
+  }
+
+  // Sub-17: 40-90% chance based on level (generates younger, slightly lower-rated player)
+  const sub17 = G.base?.find(b=>b.name==='Sub-17');
+  const lvl17 = sub17?.level||1;
+  if(lvl17 >= 2 && G.squad.length < 28 && Math.random() < 0.3 + lvl17*0.12){
+    const rt = 50 + lvl17*3 + R(0,5);
+    const pos = ['GK','DEF','DEF','MEI','MEI','ATA'][R(0,5)];
+    const y = {
+      id: Date.now()+R(1000,1999), name:RN(), pos, age:R(16,18), rating:rt,
+      vel:C(rt+R(-5,8)), tec:C(rt+R(-5,8)), fis:C(rt+R(-5,8)), fin:C(rt+R(-8,6)),
+      salary:Math.round(rt*rt*20/1000)*1000, contract:R(3,5),
+      fitness:R(85,95), injured:false, injuredRounds:0,
+      suspendedRounds:0, yellowCards:0, goals:0, assists:0,
+      starter:false, morale:R(80,95), fromYouth:true,
+    };
+    G.squad.push(y); promoted.push(y);
+  }
+
+  // Sub-15: 20-60% chance if level >= 3 (very young, diamond-in-the-rough)
+  const sub15 = G.base?.find(b=>b.name==='Sub-15');
+  const lvl15 = sub15?.level||1;
+  if(lvl15 >= 3 && G.squad.length < 28 && Math.random() < 0.1 + lvl15*0.1){
+    const rt = 46 + lvl15*3 + R(0,4);
+    const pos = ['GK','DEF','DEF','MEI','MEI','ATA'][R(0,5)];
+    const y = {
+      id: Date.now()+R(2000,2999), name:RN(), pos, age:R(15,17), rating:rt,
+      vel:C(rt+R(-5,8)), tec:C(rt+R(-5,8)), fis:C(rt+R(-5,8)), fin:C(rt+R(-8,6)),
+      salary:Math.round(rt*rt*15/1000)*1000, contract:R(3,5),
+      fitness:R(85,95), injured:false, injuredRounds:0,
+      suspendedRounds:0, yellowCards:0, goals:0, assists:0,
+      starter:false, morale:R(80,95), fromYouth:true,
+    };
+    G.squad.push(y); promoted.push(y);
+  }
+
+  return promoted;
 }
 
 // ═══════════════════════════════════════════
@@ -17520,6 +17600,8 @@ window.addEventListener('load',()=>{
   <div class="ro-title" id="ro-title">VITÓRIA!</div>
   <div class="ro-score" id="ro-score">2:1</div>
   <div class="ro-teams" id="ro-teams" style="display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap"></div>
+  <div id="ro-scorers" style="font-size:12px;color:var(--t2);margin-top:8px;min-height:16px;line-height:1.6;max-width:320px;text-align:center"></div>
+  <div id="ro-stats" style="display:flex;gap:14px;margin-top:6px;font-size:11px;color:var(--tm);flex-wrap:wrap;justify-content:center"></div>
   <div style="font-size:11px;opacity:.5;margin-top:12px;letter-spacing:.5px">toque para continuar</div>
 </div>
 
