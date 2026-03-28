@@ -15141,6 +15141,7 @@ function showSeasonEnd(){
   const club = CLUBS.find(c=>c.id===G.clubId);
 
   // Determine outcome
+  const curDiv = G.clubDiv || 'A';
   const isGameOver = curDiv === 'C' && pos >= totalTeams() - 3;
   let outcome, trophy, headerClass;
   if(isGameOver){
@@ -15161,7 +15162,6 @@ function showSeasonEnd(){
 
   // Update div status on CLUBS
   // Promoção/rebaixamento dinâmico
-  const curDiv = G.clubDiv || 'A';
   let newDiv = curDiv;
   if(pos <= 4 && divNextUp(curDiv)) newDiv = divNextUp(curDiv);    // acesso
   else if(pos >= totalTeams()-3 && divNextDown(curDiv)) newDiv = divNextDown(curDiv); // rebaixamento
@@ -15271,7 +15271,7 @@ function showSeasonEnd(){
   if(topScorer?.goals>0) performers.push({p:topScorer, stat:`${topScorer.goals} gols`, label:'Artilheiro'});
   if(topAssist?.assists>0 && topAssist.id!==topScorer?.id)
     performers.push({p:topAssist, stat:`${topAssist.assists} assistências`, label:'Assistente'});
-  performers.push({p:topRated, stat:`Nota ${effectiveRating(topRated)}`, label:'MVP'});
+  if(topRated) performers.push({p:topRated, stat:`Nota ${effectiveRating(topRated)}`, label:'MVP'});
   document.getElementById('seo-players-block').innerHTML = performers.map(({p,stat,label})=>`
     <div class="seo-player-row">
       <div class="seo-player-rt" style="color:${AC(p.rating)}">${p.rating}</div>
