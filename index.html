@@ -4116,6 +4116,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
       <div id="mini-table"></div>
     </div>
 
+    <!-- ── HISTÓRICO DE TEMPORADAS ─────── -->
+    <div id="past-seasons-block" style="display:none"></div>
+
     <div style="height:20px"></div>
   </div>
 </div>
@@ -6189,6 +6192,8 @@ function loadSlot(slot){
       // Migration v41: init achievement tracking fields
       if(G._titles === undefined) G._titles = 0;
       if(G._seasonResult === undefined) G._seasonResult = null;
+      // Migration: init season history array
+      if(!G.pastSeasons) G.pastSeasons = [];
       // Migration v42: resolve stale pending counter_responses that never got a reply
       if(G.inbox) {
         G.inbox.filter(m=>m.type==='counter_response'&&m.status==='pending').forEach(msg=>{
@@ -6332,6 +6337,7 @@ function renderHome(){
   renderComps();
   renderResults();
   renderMiniTable();
+  renderPastSeasons();
 }
 
 function renderNextMatch(){
@@ -6354,8 +6360,11 @@ function renderNextMatch(){
   const alertParts=[];
   if(injured.length) alertParts.push(`🤕 ${injured.length} lesionado${injured.length>1?'s':''}`);
   if(suspended.length) alertParts.push(`🟨 ${suspended.length} suspenso${suspended.length>1?'s':''}`);
+  const starters = G.squad.filter(p=>p.starter&&!p.injured&&!(p.suspendedRounds>0));
+  const avgFit = starters.length ? Math.round(starters.reduce((s,p)=>s+(p.fitness||80),0)/starters.length) : 80;
+  if(avgFit < 65) alertParts.push(`😮‍💨 Elenco cansado (${avgFit}% fís.)`);
   const alertHtml=alertParts.length
-    ? `<div class="nm-alert">${alertParts.join(' · ')}: ${unavail.slice(0,3).map(p=>p.name.split(' ')[0]).join(', ')}${unavail.length>3?'...':''}</div>`
+    ? `<div class="nm-alert">${alertParts.join(' · ')}${unavail.length ? ': '+unavail.slice(0,3).map(p=>p.name.split(' ')[0]).join(', ')+(unavail.length>3?'...':'') : ''}</div>`
     : '';
 
   el.innerHTML=`
@@ -6475,6 +6484,33 @@ function renderMiniTable(){
     <div class="mtr-pos">…</div>
     <div style="grid-column:2/-1;font-size:11px;color:var(--tm)">ver tabela completa →</div>
   </div>`;
+}
+
+function renderPastSeasons(){
+  const el = document.getElementById('past-seasons-block');
+  if(!el) return;
+  const hist = G.pastSeasons;
+  if(!hist || !hist.length){ el.style.display='none'; return; }
+  el.style.display='';
+  const recent = [...hist].reverse().slice(0,3);
+  el.innerHTML = `
+    <div class="sec-hdr"><div class="sec-title">Histórico de Temporadas</div></div>
+    ${recent.map(s=>{
+      const medal = s.outcome==='champ'?'🏆':s.outcome==='promo'?'🚀':s.outcome==='rel'||s.outcome==='gameover'?'📉':'✅';
+      const posColor = s.pos===1?'var(--gold)':s.pos<=4?'var(--g)':s.outcome==='rel'||s.outcome==='gameover'?'var(--red)':'var(--t2)';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--br)">
+        <span style="font-size:18px;width:22px;text-align:center">${medal}</span>
+        <div style="flex:1;min-width:0">
+          <span style="font-weight:700;color:var(--t1);font-size:13px">T${s.season}</span>
+          <span style="color:var(--tm);margin:0 5px;font-size:12px">·</span>
+          <span style="color:${posColor};font-weight:700;font-size:13px">${s.pos}º</span>
+          <span style="color:var(--tm);margin:0 5px;font-size:12px">·</span>
+          <span style="color:var(--tm);font-size:12px">${s.pts}pts ${s.wins}V ${s.draws}E ${s.losses}D</span>
+          ${s.topScorer?`<span style="color:var(--tm);font-size:11px;display:block;margin-top:1px">⚽ Artilheiro: ${s.topScorer.name.split(' ')[0]} (${s.topScorer.goals} gols)</span>`:''}
+        </div>
+        <span style="font-size:10px;color:var(--tm);font-weight:700;white-space:nowrap">${divShort(s.div)}</span>
+      </div>`;
+    }).join('')}`;
 }
 
 // ═══════════════════════════════════════════
@@ -10557,9 +10593,12 @@ confirmTeam = function(){
   // Override newGame to stamp slot SYNCHRONOUSLY before loading screen
   const _origNewGame = newGame;
   newGame = function(clubId){
-    _origNewGame(clubId);   // sets G
-    G._slot = slot;          // stamp slot on G
-    save();                  // persist with correct slot key
+    const _origSave = save;
+    save = function(){}; // suppress premature save inside newGame (G._slot not set yet)
+    _origNewGame(clubId);    // sets G but save() is suppressed
+    save = _origSave;        // restore save
+    G._slot = slot;           // stamp correct slot on G
+    save();                   // single save to the right slot
     newGame = _origNewGame;  // restore immediately after use
   };
   _baseV32ConfirmTeam();
@@ -13243,10 +13282,12 @@ function buildMatchEvents(){
       const cardTeamR=redSide==='home'?MD.hc.name:MD.ac.name;
       evts.push({min:m,icon:'🟥',txt:pick(NR.vermelho(nm,cardTeamR)),type:'card',cardType:'red',playerName:nm,side:redSide});
     } else if(Math.random()<.002){
-      // Injury event ~1 per 8-10 matches on average
+      // Injury event — tired starters (fitness<60) are 3x more likely to be the victim
       const pl=G.squad.filter(p=>p.pos!=='GK'&&!p.injured);
       if(pl.length){
-        const victim=pl[R(0,pl.length-1)];
+        const weighted = [];
+        pl.forEach(p=>{ const w=(p.starter&&(p.fitness||80)<60)?3:1; for(let i=0;i<w;i++) weighted.push(p); });
+        const victim=weighted[R(0,weighted.length-1)];
         evts.push({min:m,icon:'🤕',txt:`${victim.name} cai no gramado com dores e precisa ser substituído!`,type:'injury',playerName:victim.name});
       }
     } else if(Math.random()<.008){
@@ -14146,8 +14187,10 @@ function moraleInfo(m) {
 // Morale 85+ → +3  |  70-84 → +1  |  50-69 → 0  |  30-49 → -2  |  <30 → -5
 function effectiveRating(p) {
   const m = p.morale || 70;
-  const bonus = m >= 85 ? 3 : m >= 70 ? 1 : m >= 50 ? 0 : m >= 30 ? -2 : -5;
-  return Math.max(40, Math.min(99, (p.rating || 70) + bonus));
+  const moraleBonus = m >= 85 ? 3 : m >= 70 ? 1 : m >= 50 ? 0 : m >= 30 ? -2 : -5;
+  const fit = p.fitness || 80;
+  const fitPenalty = fit >= 80 ? 0 : fit >= 65 ? -1 : fit >= 50 ? -3 : -5;
+  return Math.max(40, Math.min(99, (p.rating || 70) + moraleBonus + fitPenalty));
 }
 
 // Team average morale (starters only)
@@ -15132,6 +15175,17 @@ function showSeasonEnd(){
   }
   G._seasonResult = outcome;  // track for campeonato achievement
 
+  // Record season in history log
+  if(!G.pastSeasons) G.pastSeasons = [];
+  const _ts = [...G.squad].sort((a,b)=>b.goals-a.goals)[0];
+  G.pastSeasons.push({
+    season: G.season, div: curDiv, pos, outcome,
+    pts: G.pts, wins: G.wins, draws: G.draws, losses: G.losses,
+    gf: G.gf, ga: G.ga,
+    topScorer: _ts && _ts.goals > 0 ? {name: _ts.name, goals: _ts.goals} : null,
+  });
+  if(G.pastSeasons.length > 10) G.pastSeasons = G.pastSeasons.slice(-10);
+
   // Update div status on CLUBS
   // Promoção/rebaixamento dinâmico
   let newDiv = curDiv;
@@ -15440,14 +15494,17 @@ function applyMatchDevelopment(){
       p[attr]=Math.min(99,(p[attr]||70)+1);
       evolved.push({name:p.name, from:oldRating, to:p.rating});
     }
-    // Fitness recovery (with Preparador Físico bonus)
+    // Fitness drain from match (mitigated by CT level and Preparador Físico)
     const sfb = staffFitnessBonus();
-    p.fitness = Math.min(100,(p.fitness||90)+R(1,3) + sfb.starter);
+    const infraCT = G.infra ? (G.infra.find(i=>i.name.includes('CT'))?.level || 1) : 1;
+    const agePenalty = p.age >= 32 ? 2 : p.age >= 29 ? 1 : 0;
+    const drain = Math.max(1, R(3,5) + agePenalty - Math.floor(infraCT/2) - sfb.starter);
+    p.fitness = Math.max(40, (p.fitness || 90) - drain);
   });
-  // Sub bench recovers fitness faster
+  // Bench recovers fitness (rest = faster recovery)
   G.squad.filter(p=>!starterIds.has(p.id)&&!p.injured).forEach(p=>{
     const sfb = staffFitnessBonus();
-    p.fitness = Math.min(100,(p.fitness||90)+R(2,4) + sfb.bench);
+    p.fitness = Math.min(100,(p.fitness||90)+R(3,6) + sfb.bench);
   });
   // Notify evolution after result overlay clears
   if(evolved.length > 0){
