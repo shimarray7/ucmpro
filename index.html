@@ -13311,51 +13311,7 @@ function buildMatchEvents(){
 
 // ── Setup match ────────────────────────────
 
-// ── DEMO LIMIT MODAL ─────────────────────────────────────────────────────────
-function showDemoLimit(){
-  // Remova a linha DEMO_LIMIT em startMatch() para desbloquear
-  let el = document.getElementById('demo-limit-modal');
-  if(!el){
-    el = document.createElement('div');
-    el.id = 'demo-limit-modal';
-    el.style.cssText = [
-      'position:fixed;inset:0;z-index:9999;max-width:430px;margin:0 auto',
-      'background:rgba(4,8,9,.96);backdrop-filter:blur(16px)',
-      'display:flex;flex-direction:column;align-items:center;justify-content:center',
-      'padding:32px 24px;text-align:center;gap:0'
-    ].join(';');
-    el.innerHTML = `
-      <div style="font-size:52px;margin-bottom:16px">⚽</div>
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:2px;color:#00E676;margin-bottom:8px">VERSÃO DEMO</div>
-      <div style="font-size:14px;font-weight:700;color:#EBF4EC;margin-bottom:12px">Você jogou 5 partidas na demo!</div>
-      <div style="font-size:13px;color:#A8C4AE;line-height:1.7;margin-bottom:28px;max-width:300px">
-        Continue sua carreira com o <strong style="color:#00E676">UCM Pro</strong> —
-        acesso completo, temporadas ilimitadas, saves na nuvem e todas as divisões.<br><br>
-        <strong style="color:#FFD740">Pagamento único · Sem mensalidade</strong>
-      </div>
-      <a href="https://ucmpro.com.br" target="_blank"
-        style="display:block;width:100%;max-width:280px;padding:16px;
-        background:#00E676;color:#000;border-radius:13px;
-        font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;
-        letter-spacing:1px;text-decoration:none;margin-bottom:12px">
-        🚀 Quero o UCM Pro
-      </a>
-      <div onclick="document.getElementById('demo-limit-modal').style.display='none'"
-        style="font-size:12px;color:#4E6B60;cursor:pointer;padding:8px;margin-top:4px">
-        Voltar ao menu principal
-      </div>`;
-    el.querySelector('div:last-child').addEventListener('click', ()=>{
-      G=null; goTo('pg-menu');
-      document.getElementById('bnav').classList.remove('show');
-      renderMenuSlots();
-    });
-    document.body.appendChild(el);
-  }
-  el.style.display = 'flex';
-}
-
 function startMatch(){
-  /* DEMO_LIMIT — remova esta linha para desbloquear o jogo completo */ if(G && (G.wins+G.draws+G.losses) >= 5){ showDemoLimit(); return; }
   const nm=G.schedule.find(m=>!m.played&&(m.home===G.clubId||m.away===G.clubId));
   if(!nm){toast('Temporada encerrada! Reinicie para jogar de novo.','err');return;}
   const hc=CLUBS.find(c=>c.id===nm.home)||{id:nm.home,name:nm.home,emoji:'🏟️',stars:3,rating:75,budget:50};
