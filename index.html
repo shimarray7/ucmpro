@@ -6054,10 +6054,7 @@ function renderLegacy(){
 
 // ── internal runtime refs (assembled at init) ──────────
 const _r0='https://rvyvao',_r1='xsssgmfnlabcvj.supabase.co';
-const _r2='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9';
-const _r3='.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2eXZhb3hzc3NnbWZubGFiY3ZqIiw';
-const _r4='icm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNDQ4OTMsImV4cCI6MjA5MDYyMDg5M30';
-const _r5='.ojbLCT1jUGQjLsB2Ag3sKyRnzAzoGeY9Ht0ReEqMxgI';
+const _r2='sb_publishabl',_r3='e_MODm6uSxoEg',_r4='ORTLLYU-DBw_6HKAXHtV';
 // ────────────────────────────────────────────────────────
 
 let _supaClient     = null;
@@ -6129,7 +6126,7 @@ function supaInit(){
     onAuthSuccess(); return;
   }
   try{
-    _supaClient = window.supabase.createClient(_r0+_r1, _r2+_r3+_r4+_r5);
+    _supaClient = window.supabase.createClient(_r0+_r1, _r2+_r3+_r4);
 
     // Quick reachability check before showing auth form
     setAuthMsg('🔌 Verificando conexão…');
