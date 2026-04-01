@@ -3901,6 +3901,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   <!-- Save slots — v32 -->
   <div class="menu-slots" id="menu-slots-container"></div>
 
+  <!-- Manager Legacy block -->
+  <div class="menu-slots" id="menu-legacy-block" style="display:none;margin-top:4px"></div>
+
   <!-- New game button -->
   <div class="menu-new-btn">
     <button class="btn btn-g" onclick="onNewGameClick()">⚽ Nova Temporada</button>
@@ -5964,6 +5967,53 @@ function syncCompStrings() {
   if(G._sulam)   G.sulam    = G._sulam.eliminated ? G._sulam.phase : G._sulam.champion ? '🌎 Campeão!' : G._sulam.phase;
 }
 
+// ── MANAGER LEGACY (cross-save career stats) ──────────────────────────────
+function getLegacy(){
+  try{ return JSON.parse(localStorage.getItem('bfm_legacy')||'null') || {seasons:0,titles:0,matches:0,wins:0,clubs:[],bestDiv:null,bestPos:99}; }
+  catch(e){ return {seasons:0,titles:0,matches:0,wins:0,clubs:[],bestDiv:null,bestPos:99}; }
+}
+function updateLegacy(pos, outcome, div){
+  if(!G) return;
+  const leg = getLegacy();
+  leg.seasons++;
+  leg.matches  += (G.wins||0)+(G.draws||0)+(G.losses||0);
+  leg.wins     += G.wins||0;
+  if(outcome==='champ') leg.titles++;
+  const club = CLUBS.find(c=>c.id===G.clubId);
+  if(club && !leg.clubs.includes(club.name)) leg.clubs.push(club.name);
+  if(leg.clubs.length > 15) leg.clubs = leg.clubs.slice(-15);
+  const divOrder = {A:1,B:2,C:3};
+  if(!leg.bestDiv || (divOrder[div]||9) < (divOrder[leg.bestDiv]||9)) leg.bestDiv = div;
+  if(pos < (leg.bestPos||99)) leg.bestPos = pos;
+  localStorage.setItem('bfm_legacy', JSON.stringify(leg));
+}
+function renderLegacy(){
+  const el = document.getElementById('menu-legacy-block');
+  if(!el) return;
+  const leg = getLegacy();
+  if(!leg.seasons){ el.style.display='none'; return; }
+  el.style.display='';
+  const divLabel = leg.bestDiv ? ({A:'Divisão Elite',B:'Segunda Divisão',C:'Terceira Divisão'})[leg.bestDiv]||leg.bestDiv : '—';
+  el.innerHTML = `
+    <div class="menu-slots-title">Legado do Técnico</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:70px;background:var(--sf2);border:1px solid var(--br);border-radius:11px;padding:10px;text-align:center">
+        <div style="font-size:22px;font-weight:900;color:var(--gold)">${leg.titles}</div>
+        <div style="font-size:10px;color:var(--tm);font-weight:700;letter-spacing:.5px">TÍTULOS</div>
+      </div>
+      <div style="flex:1;min-width:70px;background:var(--sf2);border:1px solid var(--br);border-radius:11px;padding:10px;text-align:center">
+        <div style="font-size:22px;font-weight:900;color:var(--g)">${leg.seasons}</div>
+        <div style="font-size:10px;color:var(--tm);font-weight:700;letter-spacing:.5px">TEMPORADAS</div>
+      </div>
+      <div style="flex:1;min-width:70px;background:var(--sf2);border:1px solid var(--br);border-radius:11px;padding:10px;text-align:center">
+        <div style="font-size:22px;font-weight:900;color:var(--t2)">${leg.matches}</div>
+        <div style="font-size:10px;color:var(--tm);font-weight:700;letter-spacing:.5px">PARTIDAS</div>
+      </div>
+    </div>
+    ${leg.clubs.length>1?`<div style="font-size:10px;color:var(--tm);margin-top:6px">⚽ Clubes: ${leg.clubs.slice(-5).join(', ')}</div>`:''}
+    ${leg.bestPos < 99 ? `<div style="font-size:10px;color:var(--tm);margin-top:2px">🏅 Melhor colocação: ${leg.bestPos}º (${divLabel})</div>` : ''}`;
+}
+
 function save(){
   if(!G) return;
   try{
@@ -6709,6 +6759,7 @@ function _doRelease(id){
   const comp = p.salary*3;
   G.money-=comp;
   G.squad=G.squad.filter(x=>x.id!==id);
+  G._missionSellThisWeek = (G._missionSellThisWeek||0) + 1;
   G.transactions.unshift({ic:'📄',desc:`Rescisão: ${p.name}`,date:`R${G.round}`,amt:-comp});
   save(); _openPlayerId=-1; renderSquad();
   toast(`${p.name} dispensado. Rescisão: ${FM(comp)}`,'warn');
@@ -10431,6 +10482,7 @@ function getActiveSlot(){
 
 // ── RENDER MENU SLOTS ─────────────────────────────────────────────────────────
 function renderMenuSlots(){
+  renderLegacy();
   const el = document.getElementById('menu-slots-container');
   if(!el) return;
   const slots = getAllSlots();
@@ -11820,24 +11872,45 @@ renderManagerCard = function(containerId){
 // ── E) MISSÕES SEMANAIS ──────────────────────────────────────────
 
 const MISSION_POOL = [
-  // Vitórias / desempenho
-  { id:'win2',   em:'🏆', name:'Sequência',          desc:'Vença 2 partidas seguidas',           type:'winStreak',  target:2,  reward:500000,   repXP:15 },
-  { id:'win3',   em:'🔥', name:'Três na fila',        desc:'Vença 3 partidas seguidas',           type:'winStreak',  target:3,  reward:900000,   repXP:30 },
-  { id:'clean',  em:'🧤', name:'Goleiro de aço',      desc:'Não sofra gols em 2 partidas',        type:'cleanSheet', target:2,  reward:400000,   repXP:20 },
-  { id:'goals5', em:'⚽', name:'Artilharia',          desc:'Marque 5 gols no total',              type:'goalsFor',   target:5,  reward:300000,   repXP:10 },
-  { id:'goleada',em:'💥', name:'Goleada!',            desc:'Vença por 3+ gols de diferença',      type:'bigWin',     target:3,  reward:600000,   repXP:25 },
-  // Mercado / clube
-  { id:'buy1',   em:'✍️', name:'Reforço',             desc:'Contrate 1 jogador esta semana',      type:'transfer',   target:1,  reward:200000,   repXP:8  },
-  { id:'youth',  em:'🌱', name:'Promessa',            desc:'Promova 1 jogador da base',           type:'youth',      target:1,  reward:350000,   repXP:12 },
-  // Financeiro
-  { id:'money',  em:'💰', name:'Caixa positivo',      desc:'Termine a semana com saldo positivo', type:'positive',   target:1,  reward:0,        repXP:10, moneyBonus:true },
-  // Moral/torcida
-  { id:'fans',   em:'📣', name:'A torcida quer',      desc:'Chegue a 70+ de satisfação da torcida',type:'fans',      target:70, reward:400000,   repXP:15 },
-  { id:'morale', em:'😊', name:'Moral elevado',       desc:'Chegue a 80+ de moral no elenco',     type:'morale',     target:80, reward:300000,   repXP:12 },
-  // Sem sofrer
-  { id:'nocard', em:'🟨', name:'Disciplina',          desc:'Jogue 2 partidas sem cartão vermelho', type:'noRed',     target:2,  reward:200000,   repXP:8  },
-  // Position
-  { id:'top4',   em:'🎯', name:'Elite',               desc:'Esteja no Top 4 ao final da semana',  type:'position',   target:4,  reward:700000,   repXP:20 },
+  // ── Vitórias / desempenho ──────────────────────────────────────
+  { id:'win2',      em:'🏆', name:'Sequência',         desc:'Vença 2 partidas seguidas',             type:'winStreak',     target:2,        reward:500000,   repXP:15 },
+  { id:'win3',      em:'🔥', name:'Três na fila',       desc:'Vença 3 partidas seguidas',             type:'winStreak',     target:3,        reward:900000,   repXP:30 },
+  { id:'win4',      em:'🔥', name:'Quatro na fila',     desc:'Vença 4 partidas seguidas',             type:'winStreak',     target:4,        reward:1400000,  repXP:45 },
+  { id:'unbeat4',   em:'🛡️', name:'Invicto',            desc:'Fique 4 partidas sem derrota',          type:'unbeaten',      target:4,        reward:700000,   repXP:22 },
+  { id:'unbeat6',   em:'🏰', name:'Muralha',            desc:'Fique 6 partidas sem derrota',          type:'unbeaten',      target:6,        reward:1100000,  repXP:35 },
+  // ── Defesa ────────────────────────────────────────────────────
+  { id:'clean2',    em:'🧤', name:'Goleiro de aço',     desc:'Não sofra gols em 2 partidas',          type:'cleanSheet',    target:2,        reward:400000,   repXP:20 },
+  { id:'clean3',    em:'🧱', name:'Muro',               desc:'Não sofra gols em 3 partidas',          type:'cleanSheet',    target:3,        reward:700000,   repXP:32 },
+  { id:'nocard2',   em:'🟨', name:'Disciplina',         desc:'2 partidas sem cartão vermelho',        type:'noRed',         target:2,        reward:200000,   repXP:8  },
+  { id:'nocard3',   em:'📋', name:'Jogo limpo',         desc:'3 partidas sem cartão vermelho',        type:'noRed',         target:3,        reward:350000,   repXP:14 },
+  // ── Gols ──────────────────────────────────────────────────────
+  { id:'goals5',    em:'⚽', name:'Artilharia',         desc:'Marque 5 gols no total',                type:'goalsFor',      target:5,        reward:300000,   repXP:10 },
+  { id:'goals10',   em:'⚽', name:'Bombardeiros',       desc:'Marque 10 gols no total',               type:'goalsFor',      target:10,       reward:600000,   repXP:22 },
+  { id:'goleada3',  em:'💥', name:'Goleada!',           desc:'Vença por 3+ gols de diferença',        type:'bigWin',        target:3,        reward:600000,   repXP:25 },
+  { id:'goleada4',  em:'💥', name:'Goleada histórica',  desc:'Vença por 4+ gols de diferença',        type:'bigWin',        target:4,        reward:950000,   repXP:38 },
+  { id:'hat3',      em:'🎩', name:'Hat-trick coletivo', desc:'Marque 3+ gols numa única partida',      type:'oneMatchGoals', target:3,        reward:450000,   repXP:18 },
+  // ── Fora de casa ─────────────────────────────────────────────
+  { id:'away2',     em:'✈️', name:'Guerreiro de fora',  desc:'Vença 2 partidas jogando fora',         type:'awayWin',       target:2,        reward:750000,   repXP:28 },
+  // ── Mercado / clube ───────────────────────────────────────────
+  { id:'buy1',      em:'✍️', name:'Reforço',            desc:'Contrate 1 jogador esta semana',        type:'transfer',      target:1,        reward:200000,   repXP:8  },
+  { id:'buy2',      em:'✍️', name:'Reforços',           desc:'Contrate 2 jogadores esta semana',      type:'transfer',      target:2,        reward:400000,   repXP:16 },
+  { id:'youth1',    em:'🌱', name:'Promessa',           desc:'Promova 1 jogador da base',             type:'youth',         target:1,        reward:350000,   repXP:12 },
+  { id:'sell1',     em:'💸', name:'Negociador',         desc:'Venda/dispense 1 jogador',              type:'sellPlayer',    target:1,        reward:300000,   repXP:12 },
+  { id:'upgrade1',  em:'🏗️', name:'Clube crescendo',   desc:'Realize 1 upgrade de infraestrutura',   type:'upgrade',       target:1,        reward:250000,   repXP:14 },
+  // ── Financeiro ────────────────────────────────────────────────
+  { id:'money',     em:'💰', name:'Caixa positivo',     desc:'Termine a semana com saldo positivo',   type:'positive',      target:1,        reward:0,        repXP:10, moneyBonus:true },
+  { id:'cash50',    em:'🏦', name:'Cofre cheio',        desc:'Acumule R$50M em caixa',                type:'cashTarget',    target:50000000, reward:500000,   repXP:20 },
+  // ── Moral / torcida ───────────────────────────────────────────
+  { id:'fans70',    em:'📣', name:'A torcida quer',     desc:'Alcance 70+ de satisfação da torcida',  type:'fans',          target:70,       reward:400000,   repXP:15 },
+  { id:'fans80',    em:'📣', name:'Torcida apaixonada', desc:'Alcance 80+ de satisfação da torcida',  type:'fans',          target:80,       reward:650000,   repXP:25 },
+  { id:'morale80',  em:'😊', name:'Moral elevado',      desc:'Alcance 80+ de moral no elenco',        type:'morale',        target:80,       reward:300000,   repXP:12 },
+  { id:'morale90',  em:'🔥', name:'Elenco motivado',    desc:'Alcance 90+ de moral no elenco',        type:'morale',        target:90,       reward:550000,   repXP:25 },
+  // ── Físico / elenco ───────────────────────────────────────────
+  { id:'fit75',     em:'💪', name:'Elenco em forma',    desc:'Média de fitness dos titulares acima de 75%', type:'fitSquad', target:75,      reward:400000,   repXP:15 },
+  // ── Posição ───────────────────────────────────────────────────
+  { id:'top4',      em:'🎯', name:'Elite',              desc:'Esteja no Top 4 ao final da semana',    type:'position',      target:4,        reward:700000,   repXP:20 },
+  { id:'top2',      em:'🥈', name:'Vice-liderança',     desc:'Esteja entre os 2 primeiros',           type:'position',      target:2,        reward:950000,   repXP:30 },
+  { id:'top1',      em:'🥇', name:'Liderança',          desc:'Ocupe a 1ª posição da tabela',          type:'position',      target:1,        reward:1300000,  repXP:42 },
 ];
 
 function pickMissions(count){
@@ -11889,9 +11962,12 @@ function checkMissions(){
         break;
       }
       case 'cleanSheet':{
-        // Count clean sheets in last N games since mission start
+        const _clubName = CLUBS.find(c=>c.id===G.clubId)?.name;
         const recent = G.history.slice(m.startRound - 1);
-        newProg = recent.filter(h => h.ga === 0).length;
+        newProg = recent.filter(h => {
+          const isHome = h.home === _clubName;
+          return isHome ? h.as === 0 : h.hs === 0;
+        }).length;
         break;
       }
       case 'goalsFor':{
@@ -11931,6 +12007,46 @@ function checkMissions(){
       }
       case 'position':{
         newProg = myPos() <= m.target ? 1 : 0;
+        break;
+      }
+      case 'unbeaten':{
+        let _s=0;
+        const _hist = G.history.slice(-(m.target+2));
+        for(let i=_hist.length-1;i>=0;i--){ if(_hist[i].result!=='L') _s++; else break; }
+        newProg = _s;
+        break;
+      }
+      case 'awayWin':{
+        const _cn = CLUBS.find(c=>c.id===G.clubId)?.name;
+        const _rec = G.history.slice(m.startRound - 1);
+        newProg = _rec.filter(h=>h.away===_cn && h.result==='V').length;
+        break;
+      }
+      case 'oneMatchGoals':{
+        const _cn2 = CLUBS.find(c=>c.id===G.clubId)?.name;
+        const _rec2 = G.history.slice(m.startRound - 1);
+        newProg = _rec2.some(h=>{
+          const iH = h.home===_cn2;
+          return (iH ? h.hs : h.as) >= m.target;
+        }) ? m.target : 0;
+        break;
+      }
+      case 'cashTarget':{
+        newProg = Math.min(m.target, G.money > 0 ? G.money : 0);
+        break;
+      }
+      case 'fitSquad':{
+        const _starters = G.squad.filter(p=>p.starter&&!p.injured);
+        const _avg = _starters.length ? Math.round(_starters.reduce((s,p)=>s+(p.fitness||80),0)/_starters.length) : 80;
+        newProg = _avg >= m.target ? 1 : 0;
+        break;
+      }
+      case 'upgrade':{
+        newProg = Math.min(m.target, G._missionUpgradeThisWeek||0);
+        break;
+      }
+      case 'sellPlayer':{
+        newProg = Math.min(m.target, G._missionSellThisWeek||0);
         break;
       }
     }
@@ -12141,10 +12257,12 @@ finishMatch = function(){
   // Check missions after match
   checkMissions();
 
-  // Reset weekly transfer/youth counters on mission refresh
+  // Reset weekly counters on mission refresh
   if(shouldRefreshMissions()){
-    G._missionTransferThisWeek = 0;
-    G._missionYouthThisWeek    = 0;
+    G._missionTransferThisWeek  = 0;
+    G._missionYouthThisWeek     = 0;
+    G._missionUpgradeThisWeek   = 0;
+    G._missionSellThisWeek      = 0;
   }
 
   // Post-match trash talk from last rival
@@ -12617,6 +12735,7 @@ function doInfraUpgrade(collection, name) {
     onOk: () => {
       G.money -= cost;
       item.level++;
+      G._missionUpgradeThisWeek = (G._missionUpgradeThisWeek||0) + 1;
       G.transactions.unshift({
         ic: item.icon,
         desc: `Melhoria: ${item.name} (Nível ${item.level})`,
@@ -14471,6 +14590,7 @@ function buyPlayer(id){
     personality: p.personality || assignPersonality(p.pos),
   });
   G.market=G.market.filter(x=>x.id!==id);
+  G._missionTransferThisWeek = (G._missionTransferThisWeek||0) + 1;
   G.transactions.unshift({ic:'🔄',desc:`Contratação: ${p.name}`,date:`R${G.round}`,amt:-p.price});
   save(); renderMarket();
   toast(`${p.name} contratado! 🎉`,'ok');
@@ -15011,46 +15131,95 @@ function buildSeasonNarrative(pos, outcome, curDiv) {
   // ── DIVISÃO ELITE ──────────────────────────────────────────
   if(curDiv === 'A'){
     if(outcome === 'champ'){
+      const gStr = G.wins>25?'dominante':G.wins>20?'sólida':'competitiva';
+      const scorer = topScorer?.goals>0 ? `${topScorer.name} foi o artilheiro com ${topScorer.goals} gols.` : '';
       const phrases = [
-        `Temporada ${season} vai entrar para a história. ${name} dominou a Divisão Elite do início ao fim, sem deixar dúvidas sobre quem merecia o título. ${topScorer?.goals>0?`${topScorer.name} foi o grande destaque, balançando as redes ${topScorer.goals} vezes.`:''} Uma campanha que os torcedores vão contar para os filhos.`,
-        `Havia ceticismo no começo. Mas semana após semana, ${name} foi calando os críticos e construindo uma campanha histórica. ${pct}% de aproveitamento. Campeão com moral. Temporada ${season} inesquecível.`,
-        `Quando o apito final soou, não havia surpresa — havia confirmação. ${name} foi o melhor time do país na temporada ${season}. O elenco, o técnico, a torcida: uma engrenagem perfeita.`,
+        `Temporada ${season} vai entrar para a história. ${name} dominou a Divisão Elite do início ao fim, sem deixar dúvidas sobre quem merecia o título. ${scorer} Uma campanha que os torcedores vão contar para os filhos.`,
+        `Havia ceticismo no começo. Mas semana após semana, ${name} foi calando os críticos e construindo uma campanha histórica. ${pct}% de aproveitamento — campeão com moral. Temporada ${season} inesquecível.`,
+        `Quando o apito final soou, não havia surpresa — havia confirmação. ${name} foi o melhor time do país na temporada ${season}. O elenco, o técnico, a torcida: uma engrenagem perfeita. ${scorer}`,
+        `As últimas rodadas foram de arrepiar. ${name} segurou a pressão, converteu nos momentos que importavam e faturou o título da temporada ${season} com ${G.pts} pontos. Uma temporada ${gStr} que entrega o que a torcida merece.`,
+        `Não foi fácil. Houve momentos de dúvida, mas ${name} nunca perdeu o rumo. ${G.wins} vitórias em ${G.wins+G.draws+G.losses} partidas, saldo de ${gd > 0 ? '+' : ''}${gd} gols. ${scorer} O troféu vai para a casa onde sempre pertenceu.`,
+        `${season} foi o ano de ${name}. Cada detalhe, cada treino, cada decisão levou a este momento. ${pct}% de aproveitamento. Um projeto que virou realidade. A festa pode começar.`,
+        `Temporada após temporada, a grandeza do ${name} ficava mais evidente. Em ${season}, não foi diferente. Com ${G.gf} gols marcados e uma defesa que só cedeu ${G.ga}, o título foi consequência natural.`,
+        `O placar do apito final virou história. ${name} levantou a taça de campeão da Divisão Elite na temporada ${season}. ${scorer} É o tipo de conquista que dá sentido a tudo — os treinos duros, as viagens longas, as partidas que definiram a temporada.`,
+        `Ninguém apostava no início — e foi esse ceticismo que motivou. ${name} transformou dúvida em combustível e terminou a temporada ${season} no topo, com ${G.pts} pontos, silenciando todos os críticos.`,
+        `Uma temporada construída tijolo por tijolo. ${name} foi consistente quando outros vacilaram, forte quando a pressão aumentou. Saldo ${gd > 0 ? '+' : ''}${gd}, ${pct}% de aproveitamento — o título da temporada ${season} é a prova de que projetos sérios chegam longe.`,
       ];
       return phrases[season % phrases.length];
     }
     if(outcome === 'promo'){
-      return `A temporada ${season} foi de afirmação. ${name} brigou com os grandes e garantiu vaga na Copa Continental — um feito que poucos esperavam no início do ano. ${pct}% de aproveitamento e ${pos}º lugar provam que o projeto está no caminho certo. A temporada europeia espera.`;
+      const phrP = [
+        `A temporada ${season} foi de afirmação. ${name} brigou com os grandes e garantiu vaga na Copa Continental — um feito que poucos esperavam no início do ano. ${pct}% de aproveitamento e ${pos}º lugar provam que o projeto está no caminho certo.`,
+        `${pos}º lugar e vaga continental: a temporada ${season} do ${name} foi de respeito. O elenco mostrou nível para brigar com os maiores. Na próxima, a meta é o topo.`,
+        `Copa Continental na temporada ${season+1}. Esse é o resultado de uma campanha de ${G.wins} vitórias e ${pct}% de aproveitamento. ${name} deixou claro que não é figurante na elite — é protagonista.`,
+      ];
+      return phrP[season % phrP.length];
     }
     if(outcome === 'sulam'){
-      return `Nem tudo saiu como planejado, mas a temporada ${season} não foi desperdiçada. ${name} terminou em ${pos}º lugar e garantiu a vaga na Copa Sul — competição que pode ser o trampolim para voos maiores. O aproveitamento de ${pct}% mostra potencial, mas há margem para crescer.`;
+      const phrS = [
+        `Nem tudo saiu como planejado, mas a temporada ${season} não foi desperdiçada. ${name} terminou em ${pos}º lugar com vaga na Copa Sul — trampolim para voos maiores. O aproveitamento de ${pct}% mostra potencial; falta constância.`,
+        `${pos}º lugar e Copa Sul garantida. ${name} fez o suficiente para não ser campeão, mas o bastante para seguir competindo em alto nível. A temporada ${season+1} começa com aprendizado valioso nas bagagens.`,
+      ];
+      return phrS[season % phrS.length];
     }
     if(outcome === 'rel'){
-      return `A temporada ${season} foi dolorosa. ${name} não conseguiu se sustentar na Divisão Elite e vai disputar a Segunda Divisão no próximo ano. ${gd < 0 ? `O saldo de gols negativo (${gd}) diz tudo — a defesa foi um problema crônico.` : `Apesar dos ${G.gf} gols marcados, a consistência faltou nos momentos decisivos.`} Reconstrução começa agora.`;
+      const phrR = [
+        `A temporada ${season} foi dolorosa. ${name} não conseguiu se sustentar na Divisão Elite. ${gd < 0 ? `Saldo de gols ${gd} — a defesa foi um problema crônico.` : `Apesar dos ${G.gf} gols marcados, a inconsistência foi fatal.`} Reconstrução começa agora.`,
+        `Rebaixado. A palavra mais pesada do futebol recaiu sobre ${name} na temporada ${season}. ${G.losses} derrotas, ${G.pts} pontos — não foi suficiente. A Segunda Divisão espera, e com ela uma chance de recomeço.`,
+        `${pos}º lugar. O número resume tudo o que deu errado em ${season}. ${name} caiu da elite e vai reconstruir seu projeto na Segunda Divisão. Doloroso, mas necessário — às vezes é preciso descer para subir com mais força.`,
+      ];
+      return phrR[season % phrR.length];
     }
-    return `A temporada ${season} foi de altos e baixos para ${name}. O ${pos}º lugar representa estabilidade, mas a torcida quer mais. ${pct}% de aproveitamento é o ponto de partida para uma próxima temporada mais ambiciosa. O planejamento começa agora.`;
+    const phrO = [
+      `A temporada ${season} foi de altos e baixos para ${name}. O ${pos}º lugar representa estabilidade, mas a torcida quer mais. ${pct}% de aproveitamento é o ponto de partida para uma próxima temporada mais ambiciosa.`,
+      `${pos}º na tabela, ${G.pts} pontos — ${name} cumpriu o básico na temporada ${season}, mas não foi além. O elenco tem qualidade; o projeto precisa de mais ambição. A próxima temporada começa com uma pergunta: o que vai ser diferente?`,
+      `Uma temporada de consolidação para ${name}. ${pos}º lugar, ${pct}% de aproveitamento — sólido, sem brilho. Em ${season+1}, a torcida espera dar um passo além. O potencial está lá; falta transformá-lo em conquista.`,
+    ];
+    return phrO[season % phrO.length];
   }
 
   // ── SEGUNDA DIVISÃO ────────────────────────────────────────
   if(curDiv === 'B'){
     if(outcome === 'champ' || (outcome === 'promo' && pos <= 4)){
       const promoted = pos === 1;
-      return `${promoted ? `Campeão da Segunda Divisão!` : `Acesso confirmado!`} A temporada ${season} foi a temporada da redenção para ${name}. ${promoted ? `Liderar a tabela do começo ao fim não é para qualquer um.` : `Brigar com os melhores até a última rodada e garantir o acesso é resultado de muito trabalho.`} A Divisão Elite está de volta${promoted ? ' — e desta vez, para ficar.' : '.'}`;
+      const phrB = [
+        `${promoted ? 'Campeão da Segunda Divisão!' : 'Acesso confirmado!'} A temporada ${season} foi a da redenção para ${name}. ${promoted ? 'Liderar do começo ao fim não é para qualquer um.' : 'Brigar até a última rodada e garantir o acesso é resultado de muito trabalho.'} A Divisão Elite está de volta${promoted ? ' — e desta vez, para ficar.' : '.'}`,
+        `${name} fez o que precisava na temporada ${season}: ${promoted ? 'venceu a Segunda Divisão com autoridade' : `garantiu o acesso em ${pos}º lugar`}. ${G.wins} vitórias, ${pct}% de aproveitamento. O clube volta à elite com moral e projeto.`,
+        `Das cinzas à glória — ou quase isso. ${name} encerrou a temporada ${season} entre os melhores da Segunda Divisão e sobe para a elite. ${topScorer?.goals>0?`${topScorer.name} foi decisivo com ${topScorer.goals} gols.`:''} A próxima temporada é em outro nível.`,
+      ];
+      return phrB[season % phrB.length];
     }
     if(outcome === 'rel'){
-      return `A Segunda Divisão cobrou um preço alto. ${name} não conseguiu se firmar e cai para a Terceira Divisão na temporada ${season+1}. ${gd < 0 ? `Com saldo de gols de ${gd}, fica evidente que o elenco precisava de reforços que não vieram.` : `Os números ofensivos existiram, mas a irregularidade foi fatal.`} É hora de reconstruir com humildade.`;
+      const phrBR = [
+        `A Segunda Divisão cobrou um preço alto. ${name} cai para a Terceira na temporada ${season+1}. ${gd < 0 ? `Saldo de gols ${gd} — o elenco precisava de reforços que não vieram.` : `Os números ofensivos existiram, mas a irregularidade foi fatal.`} Hora de reconstruir com humildade.`,
+        `${pos}º lugar, rebaixamento confirmado. ${name} não conseguiu se firmar na Segunda Divisão em ${season}. ${G.losses} derrotas pesaram no cômputo final. A Terceira aguarda — e com ela, a necessidade urgente de reconstrução.`,
+      ];
+      return phrBR[season % phrBR.length];
     }
-    return `Mais uma temporada na Segunda Divisão. ${name} terminou em ${pos}º lugar com ${G.pts} pontos — perto demais do acesso para se contentar, longe demais do rebaixamento para entrar em pânico. A temporada ${season+1} precisa ser diferente. O elenco tem qualidade; falta consistência.`;
+    const phrBN = [
+      `Mais uma temporada na Segunda Divisão. ${name} terminou em ${pos}º lugar com ${G.pts} pontos — perto do acesso, longe do rebaixamento. A temporada ${season+1} precisa ser diferente. O elenco tem qualidade; falta consistência.`,
+      `${pos}º lugar na Segunda Divisão — zona de indefinição. ${name} em ${season} foi um time que nem subiu, nem desceu. Na próxima temporada, a escolha é clara: ou vai de vez, ou risca ao rebaixamento. Ambiguidade não constrói projeto.`,
+    ];
+    return phrBN[season % phrBN.length];
   }
 
   // ── TERCEIRA DIVISÃO ───────────────────────────────────────
   if(curDiv === 'C'){
     if(outcome === 'gameover'){
-      return `A Terceira Divisão não perdoa quem não está preparado. ${name} terminou entre os últimos na temporada ${season} e não há mais divisão para cair. O futebol às vezes é cruel, mas cada derrota é uma lição. O próximo técnico que assumir este desafio vai começar do zero — com a força de quem não tem nada a perder.`;
+      return `A Terceira Divisão não perdoa quem não está preparado. ${name} terminou entre os últimos em ${season} e não há mais onde cair. O futebol é cruel, mas cada derrota é uma lição. O próximo capítulo começa do zero — com a força de quem não tem mais nada a perder.`;
     }
     if(outcome === 'champ' || (outcome === 'promo' && pos <= 4)){
-      return `Das cinzas para a luz. ${name} fez uma temporada ${season} de tirar o fôlego na Terceira Divisão${pos===1 ? ', vencendo a competição com folga' : ` e garantindo o acesso em ${pos}º lugar`}. ${topScorer?.goals>0 ? `${topScorer.name} foi peça-chave, com ${topScorer.goals} gols.` : ''} A Segunda Divisão espera — e desta vez o clube chega com fome.`;
+      const phrC = [
+        `Das cinzas para a luz. ${name} fez uma temporada ${season} de tirar o fôlego na Terceira Divisão${pos===1?', vencendo com folga':` garantindo o acesso em ${pos}º lugar`}. ${topScorer?.goals>0?`${topScorer.name} foi peça-chave com ${topScorer.goals} gols.`:''} A Segunda Divisão espera — e o clube chega com fome.`,
+        `${name} saiu da base e vai crescendo. A temporada ${season} na Terceira terminou com acesso${pos===1?' e título':''}, resultado de ${G.wins} vitórias e muito trabalho. O projeto ganhou velocidade; o caminho de volta ao topo começa aqui.`,
+      ];
+      return phrC[season % phrC.length];
     }
-    return `A Terceira Divisão não é lugar para se acomodar. ${name} sobreviveu à temporada ${season} em ${pos}º lugar, mas a sensação é de que o potencial ainda não foi totalmente explorado. A próxima temporada é uma nova chance — e os rivais já estão se reforçando.`;
+    const phrCN = [
+      `A Terceira Divisão não é lugar para se acomodar. ${name} sobreviveu em ${pos}º lugar na temporada ${season}, mas o potencial ainda não foi totalmente explorado. A próxima temporada é nova chance — os rivais já estão se reforçando.`,
+      `${pos}º lugar, ${G.pts} pontos — ${name} ficou no meio do caminho em ${season}. Nem acesso, nem rebaixamento. Uma temporada de aprendizado que precisa virar trampolim. A Segunda Divisão está ao alcance; basta querer de verdade.`,
+    ];
+    return phrCN[season % phrCN.length];
   }
 
   return `Temporada ${season} encerrada. ${pos}º lugar. O próximo capítulo começa em breve.`;
@@ -15174,6 +15343,8 @@ function showSeasonEnd(){
     outcome='ok'; trophy='✅'; headerClass='ok';
   }
   G._seasonResult = outcome;  // track for campeonato achievement
+  // Update cross-save manager legacy
+  updateLegacy(pos, outcome, curDiv);
 
   // Record season in history log
   if(!G.pastSeasons) G.pastSeasons = [];
@@ -17207,6 +17378,297 @@ const SEASON_EVENTS = [
         effect(G){ const bad=G.squad.filter(p=>p.morale>=90).sort((a,b)=>b.rating-a.rating)[0]; if(bad){bad.suspendedRounds=2; G.squad.forEach(p=>p.morale=Math.max(30,(p.morale||70)-6)); return `${bad.name} suspenso 2 rodadas. Moral geral -6.`;} return ''; }},
     ],
   },
+  // ── NOVOS EVENTOS (conteúdo adicional) ─────────────────────────────────────
+
+  {
+    id: 'jovem_prodígio',
+    type: 'bônus',
+    icon: '⭐',
+    title: 'Jovem Prodígio Aparece',
+    desc: 'Um jovem da base surpreendeu em treino com atuação extraordinária. A imprensa já fala nele como futuro da seleção.',
+    trigger: (G) => G.round >= 10 && G.base?.find(b=>b.name==='Sub-20')?.level >= 2,
+    choices: [
+      { label:'Promover ao elenco profissional', color:'green',
+        desc:'Integra o jovem ao time principal.',
+        effect(G){ if(G.squad.length<28){const rt=60+R(0,8);const pos=['DEF','MEI','ATA'][R(0,2)];const y={id:Date.now(),name:RN(),pos,age:R(17,19),rating:rt,vel:C(rt+R(0,10)),tec:C(rt+R(0,10)),fis:C(rt+R(-5,5)),fin:C(rt+R(-5,8)),salary:Math.round(rt*rt*25/1000)*1000,contract:R(3,5),fitness:R(85,95),injured:false,injuredRounds:0,suspendedRounds:0,yellowCards:0,goals:0,assists:0,starter:false,morale:R(85,95),fromYouth:true};G.squad.push(y);G.fanSatisfaction=Math.min(100,(G.fanSatisfaction||60)+5);return `${y.name} promovido! ${pos}, nota ${rt}. Torcida +5.`;}return 'Elenco cheio — não foi possível promover.'; }},
+      { label:'Emprestá-lo para ganhar experiência', color:'blue',
+        desc:'Cede temporariamente a outro clube.',
+        effect(G){ G.money+= 200000; G.transactions.unshift({ic:'🌱',desc:'Empréstimo de jovem',date:`R${G.round}`,amt:200000}); return '+R$200K de taxa de empréstimo. Jovem retorna mais experiente na próxima temporada.'; }},
+    ],
+    skipable: false,
+  },
+
+  {
+    id: 'crise_tecnico',
+    type: 'crise',
+    icon: '🎙️',
+    title: 'Pressão da Diretoria',
+    desc: 'Após sequência irregular, a diretoria convocou reunião de emergência. Cobranças sobre desempenho e planejamento do elenco dominam a pauta.',
+    trigger: (G) => {
+      const last6 = G.history.slice(-6);
+      const pts = last6.reduce((s,m)=>s+(m.result==='V'?3:m.result==='E'?1:0),0);
+      return last6.length >= 6 && pts <= 8 && G.round >= 10;
+    },
+    choices: [
+      { label:'Assumir responsabilidade publicamente', color:'gold',
+        desc:'Demonstra maturidade. Torcida aprecia honestidade.',
+        effect(G){ G.fanSatisfaction=Math.min(100,(G.fanSatisfaction||60)+8); G.squad.forEach(p=>p.morale=Math.min(99,(p.morale||70)+5)); return 'Torcida +8, moral do elenco +5. A pressão diminui.'; }},
+      { label:'Defender a estratégia atual', color:'blue',
+        desc:'Mantém posição. A diretoria aceita — por enquanto.',
+        effect(G){ return 'Diretoria aguarda os próximos resultados antes de agir. Pressão mantida.'; }},
+      { label:'Mudar tática e escalar reservas', color:'red',
+        desc:'Rotação total. Pode piorar, pode surpreender.',
+        effect(G){ G.squad.forEach(p=>{ p.starter=false; p.morale=Math.min(99,(p.morale||70)+R(-5,8)); }); return 'Escalação embaralhada. Moral flutuou ±5. Resultados definem o futuro.'; }},
+    ],
+    skipable: false,
+  },
+
+  {
+    id: 'negociacao_renovacao',
+    type: 'crise',
+    icon: '📝',
+    title: 'Estrela Quer Renovar — Com Aumento',
+    desc: 'O melhor jogador do elenco mandou seu empresário negociar renovação com aumento salarial de 40%. Caso o clube não aceite, a situação pode se complicar.',
+    contextFn: (G) => {
+      const star = G.squad.filter(p=>p.starter).sort((a,b)=>b.rating-a.rating)[0];
+      return star ? `⭐ ${star.name} (nota ${star.rating}, salário atual ${FM(star.salary)})` : null;
+    },
+    trigger: (G) => G.round >= 15 && G.squad.filter(p=>p.starter&&p.contract<=2).length > 0,
+    choices: [
+      { label:'Aceitar o aumento', color:'green',
+        desc:'Renovação feita. Caro, mas garante o craque.',
+        effect(G){ const star=G.squad.filter(p=>p.starter).sort((a,b)=>b.rating-a.rating)[0]; if(star){star.salary=Math.round(star.salary*1.4);star.contract=R(3,5);star.morale=Math.min(99,(star.morale||70)+15);return `${star.name} renovado. Salário: ${FM(star.salary)}/mês. Moral +15.`;}return ''; }},
+      { label:'Oferecer aumento menor (20%)', color:'gold',
+        desc:'Negociação mais equilibrada.',
+        effect(G){ const star=G.squad.filter(p=>p.starter).sort((a,b)=>b.rating-a.rating)[0]; if(star){star.salary=Math.round(star.salary*1.2);star.contract=R(2,4);star.morale=Math.min(99,(star.morale||70)+5);return `${star.name} aceita parcialmente. Salário: ${FM(star.salary)}/mês. Moral +5.`;}return ''; }},
+      { label:'Recusar e listar para venda', color:'red',
+        desc:'Jogador vai ao mercado. Receita potencial.',
+        effect(G){ const star=G.squad.filter(p=>p.starter).sort((a,b)=>b.rating-a.rating)[0]; if(star){G.forSale=(G.forSale||[]);if(!G.forSale.includes(star.id))G.forSale.push(star.id);star.morale=Math.max(20,(star.morale||70)-20);return `${star.name} na lista de vendas. Moral -20.`;}return ''; }},
+    ],
+    skipable: false,
+  },
+
+  {
+    id: 'patrocinio_premium',
+    type: 'bônus',
+    icon: '🤝',
+    title: 'Proposta de Patrocínio Premium',
+    desc: 'Uma empresa do setor de energia propôs patrocínio máster de alta visibilidade. O contrato é valioso, mas exige Top 8 ao final da temporada.',
+    trigger: (G) => G.round >= 5 && G.round <= 15 && !G.seasonEvents?.includes('patrocinio_premium'),
+    choices: [
+      { label:'Assinar — meta Top 8', color:'green',
+        desc:'Dinheiro antecipado com contrapartida.',
+        effect(G){ const adv=R(3000000,6000000); G.money+=adv; G._patronTarget={type:'topN',n:8,reward:2000000,penalty:adv*0.5}; G.transactions.unshift({ic:'🤝',desc:'Patrocínio premium (adiantamento)',date:`R${G.round}`,amt:adv}); return `+${FM(adv)} adiantado. Cumpra o Top 8 ou devolva ${FM(adv*0.5)}.`; }},
+      { label:'Negociar sem contrapartida', color:'gold',
+        desc:'Valor menor, sem obrigações.',
+        effect(G){ const v=R(1000000,2500000); G.money+=v; G.transactions.unshift({ic:'🤝',desc:'Patrocínio simples',date:`R${G.round}`,amt:v}); return `+${FM(v)} sem metas atreladas.`; }},
+      { label:'Recusar', color:'red', desc:'Mantém independência.', effect(G){ return 'Proposta recusada. Nenhum impacto financeiro.'; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'acidente_treino',
+    type: 'crise',
+    icon: '🚑',
+    title: 'Incidente no Treino',
+    desc: 'Um choque acidental durante treino deixou dois jogadores machucados. O Departamento Médico precisa agir rápido.',
+    trigger: (G) => G.round >= 8 && G.squad.filter(p=>!p.injured).length >= 15,
+    choices: [
+      { label:'Acionar Dept. Médico com recurso extra', color:'green',
+        desc:'Custo extra, mas recuperação mais rápida.',
+        effect(G){ const cost=R(200000,500000); if(G.money>=cost){G.money-=cost;const injured=G.squad.filter(p=>!p.injured&&p.starter).slice(0,2);injured.forEach(p=>{p.injured=true;p.injuredRounds=1;p.fitness=Math.max(40,(p.fitness||80)-15);});G.transactions.unshift({ic:'🏥',desc:'Emergência médica',date:`R${G.round}`,amt:-cost});return `2 jogadores lesionados (1 rodada). -${FM(cost)} em cuidados emergenciais.`;}return 'Saldo insuficiente para tratamento de emergência.'; }},
+      { label:'Procedimento padrão do clube', color:'gold',
+        desc:'Sem custo extra, recuperação normal.',
+        effect(G){ const injured=G.squad.filter(p=>!p.injured&&p.starter).slice(0,2); injured.forEach(p=>{p.injured=true;p.injuredRounds=R(1,3);p.fitness=Math.max(40,(p.fitness||80)-20);}); return `2 jogadores lesionados por ${injured[0]?.injuredRounds||2} rodadas.`; }},
+    ],
+    skipable: false,
+  },
+
+  {
+    id: 'viagem_cansativa',
+    type: 'crise',
+    icon: '✈️',
+    title: 'Viagem Desgastante',
+    desc: 'Uma viagem de 16 horas para jogo fora desgastou fisicamente o elenco. Os jogadores chegaram tarde e o treino foi cancelado.',
+    trigger: (G) => G.round >= 12 && G.history.filter(m=>m.result==='L').slice(-2).length >= 1,
+    choices: [
+      { label:'Descanso total — cancelar treino', color:'blue',
+        desc:'Prioriza recuperação física.',
+        effect(G){ G.squad.forEach(p=>{p.fitness=Math.min(100,(p.fitness||80)+R(6,12));}); return 'Elenco descansado. Fitness +6 a +12 para todos.'; }},
+      { label:'Treino leve obrigatório', color:'gold',
+        desc:'Mantém ritmo, mas cansa um pouco mais.',
+        effect(G){ G.squad.forEach(p=>{p.fitness=Math.max(40,(p.fitness||80)+R(-2,5));}); return 'Fitness flutuou ±. Ritmo mantido.'; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'craque_lesionado_rival',
+    type: 'bônus',
+    icon: '🍀',
+    title: 'Craque do Rival Se Lesiona',
+    desc: 'O melhor jogador do rival direto se lesionou e vai ficar fora por 3 rodadas. Uma janela de oportunidade se abre na tabela.',
+    trigger: (G) => G.round >= 10 && G.round <= 30 && !G.seasonEvents?.includes('craque_lesionado_rival'),
+    choices: [
+      { label:'Aproveitar — intensificar pressão tática', color:'green',
+        desc:'Explorar a fraqueza do adversário.',
+        effect(G){ G.squad.filter(p=>p.starter).forEach(p=>p.morale=Math.min(99,(p.morale||70)+8)); G.fanSatisfaction=Math.min(100,(G.fanSatisfaction||60)+6); return 'Moral dos titulares +8, torcida +6. Janela de oportunidade ativa!'; }},
+      { label:'Manter foco no próprio time', color:'blue',
+        desc:'Ignora e foca no próprio jogo.',
+        effect(G){ return 'Foco mantido. Equipe segue seu ritmo sem distrações.'; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'formacao_coletiva',
+    type: 'bônus',
+    icon: '🧑‍🏫',
+    title: 'Clínica Tática com Técnico Convidado',
+    desc: 'Um técnico europeu em visita ao Brasil ofereceu uma sessão tática especial ao elenco. O nível técnico pode aumentar significativamente.',
+    trigger: (G) => G.round >= 8 && !G.seasonEvents?.includes('formacao_coletiva'),
+    choices: [
+      { label:'Aceitar e integrar ao treino', color:'green',
+        desc:'Sessão tática especial. Custo de organização.',
+        effect(G){ if(G.money>=150000){G.money-=150000;G.squad.filter(p=>p.age<=26).forEach(p=>{p.tec=Math.min(99,(p.tec||70)+R(1,3));}); G.transactions.unshift({ic:'🧑‍🏫',desc:'Clínica tática',date:`R${G.round}`,amt:-150000}); return '-R$150K. Jogadores jovens: técnica +1 a +3.'; }return 'Saldo insuficiente.'; }},
+      { label:'Sessão apenas para observação', color:'gold',
+        desc:'Sem custo, benefício menor.',
+        effect(G){ G.squad.filter(p=>p.starter&&p.age<=26).forEach(p=>p.morale=Math.min(99,(p.morale||70)+5)); return 'Moral dos jovens titulares +5.'; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'fans_movimento',
+    type: 'bônus',
+    icon: '🎺',
+    title: 'Movimento da Torcida Organizada',
+    desc: 'A torcida organizada lançou campanha "Clube do Coração" para lotar o estádio. O apoio pode fazer diferença nos próximos jogos em casa.',
+    trigger: (G) => (G.fanSatisfaction||60) >= 65 && G.round >= 8 && !G.seasonEvents?.includes('fans_movimento'),
+    choices: [
+      { label:'Apoiar publicamente a campanha', color:'green',
+        desc:'Clube engaja. Lotação máxima nos próximos jogos.',
+        effect(G){ G.fanSatisfaction=Math.min(100,(G.fanSatisfaction||60)+12); G.squad.forEach(p=>p.morale=Math.min(99,(p.morale||70)+6)); return 'Satisfação da torcida +12. Moral do elenco +6. Estádio vai lotar!'; }},
+      { label:'Agradecer mas não se envolver', color:'blue',
+        desc:'Neutro. A campanha segue por conta própria.',
+        effect(G){ G.fanSatisfaction=Math.min(100,(G.fanSatisfaction||60)+5); return 'Torcida +5. A campanha acontece, mas sem o engajamento oficial.'; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'eleicao_diretoria',
+    type: 'crise',
+    icon: '🗳️',
+    title: 'Eleições na Diretoria',
+    desc: 'Com eleições chegando, dois candidatos à presidência do clube têm projetos distintos. Um deles planeja renegociar seu contrato. O resultado impacta o próximo ciclo.',
+    trigger: (G) => G.season % 2 === 0 && G.round >= 20 && !G.seasonEvents?.includes('eleicao_diretoria'),
+    choices: [
+      { label:'Apoiar o candidato conservador', color:'blue',
+        desc:'Manutenção do projeto atual. Orçamento estável.',
+        effect(G){ return 'Candidato conservador eleito. Orçamento e projeto mantidos. Continuidade garantida.'; }},
+      { label:'Apoiar o candidato ambicioso', color:'gold',
+        desc:'Mais verba para contratações, mas pressão por resultados.',
+        effect(G){ G.money+=R(2000000,5000000); G.income=Math.round((G.income||1000000)*1.15); G.transactions.unshift({ic:'🗳️',desc:'Novo aporte da diretoria',date:`R${G.round}`,amt:G.money}); return `+${FM(G.money)} de aporte. Renda mensal +15%. A pressão por resultados aumenta.`; }},
+      { label:'Manter neutralidade', color:'red',
+        desc:'Nenhum candidato apoiado.',
+        effect(G){ G.squad.forEach(p=>p.morale=Math.min(99,(p.morale||70)-3)); return 'Neutralidade gerou desconforto. Moral do elenco -3.'; }},
+    ],
+    skipable: false,
+  },
+
+  {
+    id: 'lesao_goleiro',
+    type: 'crise',
+    icon: '🧤',
+    title: 'Goleiro Titular Fora',
+    desc: 'O goleiro titular sofreu uma lesão muscular no aquecimento pré-jogo. O reserva vai precisar assumir — e ele está sob pressão.',
+    trigger: (G) => G.round >= 10 && G.squad.filter(p=>p.pos==='GK'&&!p.injured).length >= 2,
+    choices: [
+      { label:'Treino especial com o reserva', color:'green',
+        desc:'Preparação extra. Custo de infraestrutura.',
+        effect(G){ const gk=G.squad.find(p=>p.pos==='GK'&&!p.injured&&!p.starter); if(gk){const c=Math.min(G.money,150000);G.money-=c;gk.fitness=Math.min(100,(gk.fitness||80)+10);gk.morale=Math.min(99,(gk.morale||70)+15);G.transactions.unshift({ic:'🧤',desc:'Preparação goleiro reserva',date:`R${G.round}`,amt:-c}); const titular=G.squad.find(p=>p.pos==='GK'&&p.injured); if(titular)titular.injuredRounds=Math.max(1,(titular.injuredRounds||2)-1); return `${gk.name} preparado: fitness +10, moral +15. Lesão do titular reduzida 1 rodada.`;}return ''; }},
+      { label:'Confiar no reserva sem preparação especial', color:'blue',
+        desc:'Sem custo. Reserva assume com confiança normal.',
+        effect(G){ const gk=G.squad.find(p=>p.pos==='GK'&&!p.injured&&!p.starter); if(gk){gk.morale=Math.min(99,(gk.morale||70)+5); return `${gk.name} assume com confiança. Moral +5.`;}return ''; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'oportunidade_mercado',
+    type: 'bônus',
+    icon: '🔍',
+    title: 'Oportunidade Relâmpago no Mercado',
+    desc: 'Um jogador de nível elevado ficou sem clube após ruptura contratual. Há interesse de outros times — a janela está aberta por pouco tempo.',
+    trigger: (G) => G.round >= 5 && G.round <= 30 && G.market?.filter(p=>p.rating>=75).length<3 && !G.seasonEvents?.includes('oportunidade_mercado'),
+    choices: [
+      { label:'Acionar olheiro para prioridade', color:'green',
+        desc:'Contratação preferencial, custo adicional.',
+        effect(G){ if(G.squad.length<28){const rt=75+R(0,8);const pos=['DEF','DEF','MEI','MEI','ATA'][R(0,4)];const p={id:Date.now(),name:RN(),pos,age:R(24,30),rating:rt,vel:C(rt+R(-5,5)),tec:C(rt+R(-5,5)),fis:C(rt+R(-5,5)),fin:C(rt+R(-5,5)),salary:Math.round(rt*rt*35/1000)*1000,contract:R(2,4),fitness:R(80,90),injured:false,injuredRounds:0,suspendedRounds:0,yellowCards:0,goals:0,assists:0,starter:false,morale:R(70,85),personality:'profissional'};const cost=Math.round(calcVM(rt,p.age)*1.1);if(G.money>=cost){G.money-=cost;G.squad.push(p);G.transactions.unshift({ic:'🔍',desc:`Contratação: ${p.name}`,date:`R${G.round}`,amt:-cost});return `${p.name} contratado! ${pos}, nota ${rt}. -${FM(cost)}.`;}return 'Saldo insuficiente para aproveitar a oportunidade.';}return 'Elenco cheio.'; }},
+      { label:'Avaliar antes de decidir', color:'gold',
+        desc:'Jogador vai ao mercado — pode comprá-lo depois.',
+        effect(G){ const rt=75+R(0,8);const pos=['DEF','DEF','MEI','MEI','ATA'][R(0,4)];const p={id:Date.now(),name:RN(),pos,age:R(24,30),rating:rt,vel:C(rt+R(-5,5)),tec:C(rt+R(-5,5)),fis:C(rt+R(-5,5)),fin:C(rt+R(-5,5)),salary:Math.round(rt*rt*35/1000)*1000,price:Math.round(calcVM(rt,24)*1.05),contract:R(2,4),fitness:R(80,90),injured:false,injuredRounds:0,suspendedRounds:0,yellowCards:0,goals:0,assists:0,starter:false,morale:R(70,85),personality:'profissional'};G.market.unshift(p);return `${p.name} (${pos}, nota ${rt}) adicionado ao mercado por ${FM(p.price)}.`; }},
+      { label:'Desinteresse — elenco está bom', color:'red', desc:'Passa a oportunidade.', effect(G){ return 'Oportunidade recusada. Foco no elenco atual.'; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'aniversario_clube',
+    type: 'bônus',
+    icon: '🎂',
+    title: 'Aniversário do Clube',
+    desc: 'O clube completa mais um ano de história nesta semana. A torcida, os patrocinadores e a imprensa celebram. Uma oportunidade para unir o grupo.',
+    trigger: (G) => G.round === 10 || G.round === 22,
+    choices: [
+      { label:'Festa com o elenco e torcida', color:'green',
+        desc:'Evento especial de confraternização.',
+        effect(G){ const cost=R(100000,300000);if(G.money>=cost){G.money-=cost;G.squad.forEach(p=>p.morale=Math.min(99,(p.morale||70)+10));G.fanSatisfaction=Math.min(100,(G.fanSatisfaction||60)+10);G.transactions.unshift({ic:'🎂',desc:'Festa de aniversário do clube',date:`R${G.round}`,amt:-cost});return `-${FM(cost)}. Moral +10, torcida +10. Ambiente de festa!`;}return 'Saldo insuficiente para a festa.'; }},
+      { label:'Comunicado oficial e vídeo histórico', color:'blue',
+        desc:'Celebração simples e barata.',
+        effect(G){ G.squad.forEach(p=>p.morale=Math.min(99,(p.morale||70)+4)); G.fanSatisfaction=Math.min(100,(G.fanSatisfaction||60)+5); return 'Moral +4, torcida +5. Celebração discreta mas efetiva.'; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'teste_formacao',
+    type: 'bônus',
+    icon: '📐',
+    title: 'Inovação Tática',
+    desc: 'A comissão técnica propôs testar nova formação que pode surpreender os adversários. Exige treino especial e adaptação do elenco.',
+    trigger: (G) => G.round >= 8 && G.round <= 25 && !G.seasonEvents?.includes('teste_formacao'),
+    choices: [
+      { label:'Experimentar nas próximas 2 partidas', color:'green',
+        desc:'Arrisca para surpreender. Elenco pode não se adaptar rapidamente.',
+        effect(G){ G.squad.filter(p=>p.starter).forEach(p=>{p.morale=Math.min(99,(p.morale||70)+R(-3,10));p.fitness=Math.max(40,(p.fitness||80)-R(2,5));}); return 'Titulares: moral flutuou, fitness -2 a -5 (treino intenso). A surpresa pode pagar o preço.'; }},
+      { label:'Manter a formação atual', color:'blue',
+        desc:'Estabilidade. Sem riscos, sem surpresas.',
+        effect(G){ return 'Formação atual mantida. Estabilidade garantida.'; }},
+    ],
+    skipable: true,
+  },
+
+  {
+    id: 'superacao_reserva',
+    type: 'bônus',
+    icon: '💡',
+    title: 'Reserva se Destaca',
+    desc: 'Um jogador do banco de reservas teve desempenho excepcional nos treinos e vem cobrando espaço. A concorrência interna esquentou.',
+    trigger: (G) => G.round >= 12 && G.squad.filter(p=>!p.starter).some(p=>p.rating>=72),
+    choices: [
+      { label:'Dar chance como titular', color:'green',
+        desc:'O reserva ganha confiança e pode render bem.',
+        effect(G){ const res=G.squad.filter(p=>!p.starter&&p.rating>=72).sort((a,b)=>b.rating-a.rating)[0]; if(res){res.morale=Math.min(99,(res.morale||70)+20);res.fitness=Math.min(100,(res.fitness||80)+5);return `${res.name} recebe chance. Moral +20, fitness +5. Motivado!`;}return ''; }},
+      { label:'Reconhecer no treino mas manter escalação', color:'blue',
+        desc:'Elogio público sem mudança na escalação.',
+        effect(G){ const res=G.squad.filter(p=>!p.starter&&p.rating>=72).sort((a,b)=>b.rating-a.rating)[0]; if(res){res.morale=Math.min(99,(res.morale||70)+10);return `${res.name} reconhecido. Moral +10.`;}return ''; }},
+    ],
+    skipable: true,
+  },
+
 ];
 
 // ── EVENT ENGINE ─────────────────────────────────────────────────────────────
