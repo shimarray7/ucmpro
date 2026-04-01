@@ -3861,6 +3861,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .club-logo-emoji { display:inline-flex;align-items:center;justify-content:center }
 
 </style>
+<!-- Supabase CDN (UMD) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
 
@@ -3907,6 +3909,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   <!-- New game button -->
   <div class="menu-new-btn">
     <button class="btn btn-g" onclick="onNewGameClick()">⚽ Nova Temporada</button>
+  </div>
+
+  <!-- Supabase cloud save panel -->
+  <div class="menu-slots" style="margin-top:4px;padding:10px 12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="(function(p){p.style.display=p.style.display==='none'?'block':'none'})(document.getElementById('supa-panel'))">
+      <div style="font-size:11px;font-weight:700;color:var(--txt)">☁️ Save na Nuvem</div>
+      <span style="font-size:10px;color:var(--tm)" id="supa-header-status">toque para configurar</span>
+    </div>
+    <div id="supa-panel" style="display:none;margin-top:10px">
+      <div id="supa-panel-body"></div>
+    </div>
   </div>
 
   <div style="display:flex;align-items:center;gap:12px;margin-top:10px">
@@ -6014,6 +6027,215 @@ function renderLegacy(){
     ${leg.bestPos < 99 ? `<div style="font-size:10px;color:var(--tm);margin-top:2px">🏅 Melhor colocação: ${leg.bestPos}º (${divLabel})</div>` : ''}`;
 }
 
+// ═══════════════════════════════════════════════════════
+//  SUPABASE CLOUD SAVE — Bridge (fire-and-forget)
+//  Table required: ucm_saves (user_id uuid, slot int, data text, saved_at timestamptz)
+//  Primary key: (user_id, slot)  — enable RLS: user_id = auth.uid()
+// ═══════════════════════════════════════════════════════
+let _supaClient     = null;
+let _supaUser       = null;
+let _supaCache      = {};     // { slot: { data: string, ts: number } }
+let _supaSyncStatus = 'off';  // 'off'|'syncing'|'ok'|'err'
+
+function _setSupaStatus(s){
+  _supaSyncStatus = s;
+  const el = document.getElementById('supa-status');
+  if(el){
+    const map = { off:'☁️ Desconectado', syncing:'🔄 Sincronizando…', ok:'☁️ Sincronizado', err:'⚠️ Erro de sync' };
+    el.textContent = map[s] || s;
+    el.style.color = s==='err'?'#e74c3c': s==='ok'?'#2ecc71':'var(--tm)';
+  }
+  const hdr = document.getElementById('supa-header-status');
+  if(hdr){
+    if(s==='ok' && _supaUser) hdr.textContent = '✅ '+(_supaUser.email||'conectado');
+    else if(s==='syncing') hdr.textContent = '🔄 sincronizando…';
+    else if(s==='err') hdr.textContent = '⚠️ erro';
+    else if(_supaUser) hdr.textContent = _supaUser.email||'conectado';
+    else hdr.textContent = 'toque para configurar';
+  }
+}
+
+function _getSupaCfg(){
+  try{ return JSON.parse(localStorage.getItem('bfm_supa_cfg')||'null'); }
+  catch(e){ return null; }
+}
+
+function _saveSupaCfg(url, key){
+  localStorage.setItem('bfm_supa_cfg', JSON.stringify({url:url.trim(), key:key.trim()}));
+}
+
+function supaInit(){
+  const cfg = _getSupaCfg();
+  if(!cfg || !window.supabase) return;
+  try{
+    _supaClient = window.supabase.createClient(cfg.url, cfg.key);
+    _supaClient.auth.onAuthStateChange((event, session)=>{
+      _supaUser = session && session.user ? session.user : null;
+      renderSupaPanel();
+      if(_supaUser){
+        _setSupaStatus('syncing');
+        supaLoadAllToCache().then(()=>{ _setSupaStatus('ok'); renderMenuSlots(); });
+      } else {
+        _setSupaStatus('off');
+      }
+    });
+    _supaClient.auth.getSession().then(function(res){
+      const session = res && res.data ? res.data.session : null;
+      _supaUser = session && session.user ? session.user : null;
+      renderSupaPanel();
+      if(_supaUser){
+        _setSupaStatus('syncing');
+        supaLoadAllToCache().then(()=>{ _setSupaStatus('ok'); renderMenuSlots(); });
+      }
+    });
+  } catch(e){ console.warn('[UCM] supaInit error', e); }
+}
+
+function supaSave(slot, jsonStr, ts){
+  if(!_supaClient || !_supaUser) return;
+  _setSupaStatus('syncing');
+  _supaClient.from('ucm_saves').upsert({
+    user_id:  _supaUser.id,
+    slot:     slot,
+    data:     jsonStr,
+    saved_at: new Date(ts).toISOString()
+  }, { onConflict: 'user_id,slot' }).then(function(res){
+    if(res.error){ console.warn('[UCM] supaSave err', res.error); _setSupaStatus('err'); return; }
+    _supaCache[slot] = { data: jsonStr, ts: ts };
+    _setSupaStatus('ok');
+  });
+}
+
+function supaDelete(slot){
+  if(!_supaClient || !_supaUser) return;
+  _supaClient.from('ucm_saves').delete()
+    .eq('user_id', _supaUser.id).eq('slot', slot)
+    .then(function(res){ if(!res.error) delete _supaCache[slot]; });
+}
+
+function supaLoadAllToCache(){
+  if(!_supaClient || !_supaUser) return Promise.resolve();
+  return _supaClient.from('ucm_saves')
+    .select('slot,data,saved_at')
+    .eq('user_id', _supaUser.id)
+    .then(function(res){
+      if(res.error){ console.warn('[UCM] supaLoad err', res.error); return; }
+      (res.data||[]).forEach(function(row){
+        const ts = new Date(row.saved_at).getTime();
+        _supaCache[row.slot] = { data: row.data, ts: ts };
+      });
+    });
+}
+
+function supaSignIn(email, password){
+  if(!_supaClient){ toast('⚠️ Configure o Supabase primeiro.','err'); return; }
+  _supaClient.auth.signInWithPassword({ email: email, password: password }).then(function(res){
+    if(res.error){ toast('❌ '+res.error.message,'err'); return; }
+    toast('✅ Login realizado!','ok');
+  });
+}
+
+function supaSignUp(email, password){
+  if(!_supaClient){ toast('⚠️ Configure o Supabase primeiro.','err'); return; }
+  _supaClient.auth.signUp({ email: email, password: password }).then(function(res){
+    if(res.error){ toast('❌ '+res.error.message,'err'); return; }
+    toast('📧 Verifique seu e-mail para confirmar a conta!','ok',5000);
+  });
+}
+
+function supaSignOut(){
+  if(!_supaClient) return;
+  _supaClient.auth.signOut().then(function(){
+    _supaUser = null; _supaCache = {};
+    _setSupaStatus('off');
+    renderSupaPanel();
+    toast('👋 Desconectado da nuvem.','ok');
+  });
+}
+
+function supaSyncNow(){
+  if(!_supaClient || !_supaUser){ toast('⚠️ Faça login primeiro.','err'); return; }
+  _setSupaStatus('syncing');
+  supaLoadAllToCache().then(function(){
+    _setSupaStatus('ok');
+    renderMenuSlots();
+    toast('☁️ Saves sincronizados da nuvem!','ok');
+  });
+}
+
+function renderSupaPanel(){
+  const el = document.getElementById('supa-panel-body');
+  if(!el) return;
+  const cfg = _getSupaCfg();
+  const inp = 'width:100%;box-sizing:border-box;padding:6px 8px;border-radius:6px;border:1px solid var(--brd);background:var(--card);color:var(--txt);font-size:11px;margin-bottom:5px';
+  if(!cfg){
+    el.innerHTML =
+      '<div style="font-size:11px;color:var(--tm);margin-bottom:8px">Cole as credenciais do seu projeto Supabase:</div>'+
+      '<input id="supa-url" type="text" placeholder="Project URL (https://xxx.supabase.co)" style="'+inp+'">'+
+      '<input id="supa-key" type="text" placeholder="anon / public key" style="'+inp+'margin-bottom:10px">'+
+      '<button class="btn btn-g" style="width:100%;font-size:11px;padding:8px" onclick="handleSupaConnect()">Conectar projeto</button>';
+    return;
+  }
+  if(!_supaUser){
+    const proj = cfg.url.replace('https://','').split('.')[0];
+    el.innerHTML =
+      '<div style="font-size:10px;color:var(--tm);margin-bottom:6px">Projeto: <b>'+proj+'</b></div>'+
+      '<input id="supa-email" type="email" placeholder="E-mail" style="'+inp+'">'+
+      '<input id="supa-pwd" type="password" placeholder="Senha" style="'+inp+'margin-bottom:8px">'+
+      '<div style="display:flex;gap:6px;margin-bottom:8px">'+
+        '<button class="btn btn-g" style="flex:1;font-size:11px;padding:7px" onclick="handleSupaSignIn()">Entrar</button>'+
+        '<button class="btn" style="flex:1;font-size:11px;padding:7px;background:var(--card);border:1px solid var(--brd);border-radius:6px;color:var(--txt)" onclick="handleSupaSignUp()">Criar conta</button>'+
+      '</div>'+
+      '<div style="text-align:right"><span style="font-size:10px;color:var(--tm);cursor:pointer;text-decoration:underline" onclick="handleSupaDisconnect()">Desconectar projeto</span></div>';
+    return;
+  }
+  el.innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
+      '<div style="width:8px;height:8px;border-radius:50%;background:#2ecc71;flex-shrink:0"></div>'+
+      '<div style="font-size:11px;color:var(--txt);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_supaUser.email+'</div>'+
+    '</div>'+
+    '<div id="supa-status" style="font-size:10px;color:#2ecc71;margin-bottom:8px">☁️ Sincronizado</div>'+
+    '<div style="display:flex;gap:6px">'+
+      '<button class="btn btn-g" style="flex:1;font-size:11px;padding:7px" onclick="supaSyncNow()">🔄 Sincronizar</button>'+
+      '<button class="btn" style="flex:1;font-size:11px;padding:7px;background:var(--card);border:1px solid var(--brd);border-radius:6px;color:var(--txt)" onclick="supaSignOut()">Sair</button>'+
+    '</div>';
+  _setSupaStatus(_supaSyncStatus === 'off' ? 'ok' : _supaSyncStatus);
+}
+
+function handleSupaConnect(){
+  const url = (document.getElementById('supa-url')||{}).value||'';
+  const key = (document.getElementById('supa-key')||{}).value||'';
+  if(!url||!key){ toast('⚠️ Preencha URL e chave anon.','err'); return; }
+  _saveSupaCfg(url, key);
+  supaInit();
+  renderSupaPanel();
+  toast('🔌 Conectando ao Supabase…','ok');
+}
+
+function handleSupaSignIn(){
+  const email = (document.getElementById('supa-email')||{}).value||'';
+  const pwd   = (document.getElementById('supa-pwd')||{}).value||'';
+  if(!email||!pwd){ toast('⚠️ Preencha e-mail e senha.','err'); return; }
+  supaSignIn(email, pwd);
+}
+
+function handleSupaSignUp(){
+  const email = (document.getElementById('supa-email')||{}).value||'';
+  const pwd   = (document.getElementById('supa-pwd')||{}).value||'';
+  if(!email||!pwd){ toast('⚠️ Preencha e-mail e senha.','err'); return; }
+  supaSignUp(email, pwd);
+}
+
+function handleSupaDisconnect(){
+  localStorage.removeItem('bfm_supa_cfg');
+  _supaClient = null; _supaUser = null; _supaCache = {};
+  _setSupaStatus('off');
+  renderSupaPanel();
+  toast('🔌 Projeto Supabase desconectado.','ok');
+}
+
+// ═══════════════════════════════════════════════════════
+
 function save(){
   if(!G) return;
   try{
@@ -6035,9 +6257,12 @@ function save(){
       rivalOffersLog: G.rivalOffersLog ? G.rivalOffersLog.slice(-15) : [],
     });
     const json = JSON.stringify(toSave);
+    const _saveTs = Date.now();
     localStorage.setItem('bfm_slot_' + slot, json);
     localStorage.setItem('bfm_active_slot', String(slot));
-    localStorage.setItem('bfm_save_ts_' + slot, Date.now().toString());
+    localStorage.setItem('bfm_save_ts_' + slot, _saveTs.toString());
+    // Fire-and-forget cloud backup
+    supaSave(slot, json, _saveTs);
   }catch(e){
     if(e && e.name === 'QuotaExceededError'){
       try{
@@ -6171,6 +6396,13 @@ function getSaveTimestamp(slot){
 }
 function loadSlot(slot){
   try{
+    // Prefer Supabase cache if it has a newer save than localStorage
+    const _localTs  = parseInt(localStorage.getItem('bfm_save_ts_' + slot) || '0');
+    const _supaEntry = _supaCache[slot];
+    if(_supaEntry && _supaEntry.ts > _localTs && _supaEntry.data){
+      localStorage.setItem('bfm_slot_' + slot, _supaEntry.data);
+      localStorage.setItem('bfm_save_ts_' + slot, _supaEntry.ts.toString());
+    }
     // Migration: if slot 1 requested and empty, try legacy key
     let s = localStorage.getItem('bfm_slot_' + slot);
     if(!s && slot === 1) s = localStorage.getItem('bfm_v4');
@@ -10468,12 +10700,15 @@ function getAllSlots(){ return [1,2,3].map(getSlotData); }
 
 function deleteSlot(slot){
   localStorage.removeItem('bfm_slot_' + slot);
+  localStorage.removeItem('bfm_save_ts_' + slot);
   if(slot === 1) localStorage.removeItem('bfm_v4'); // also clear legacy
   const active = parseInt(localStorage.getItem('bfm_active_slot')||'0');
   if(active === slot){
     localStorage.removeItem('bfm_active_slot');
     G = null;
   }
+  // Fire-and-forget cloud delete
+  supaDelete(slot);
 }
 
 function getActiveSlot(){
@@ -17970,6 +18205,9 @@ window.addEventListener('load',()=>{
   renderMenuSlots();
   // Init team select
   renderTeamSelect();
+  // Init Supabase cloud save (if configured)
+  supaInit();
+  renderSupaPanel();
 
   // Autosave a cada 90 segundos enquanto jogo ativo
   setInterval(()=>{ if(G && G.round > 1) save(); }, 90000);
