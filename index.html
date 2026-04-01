@@ -6124,9 +6124,22 @@ function _setSupaStatus(s){
 
 // ── Supabase init ────────────────────────────────────────
 function supaInit(){
-  if(!window.supabase){ onAuthSuccess(); return; }
+  if(!window.supabase){
+    console.warn('[UCM] supabase-js não carregou — modo local');
+    onAuthSuccess(); return;
+  }
   try{
     _supaClient = window.supabase.createClient(_r0+_r1, _r2+_r3+_r4+_r5);
+
+    // Quick reachability check before showing auth form
+    setAuthMsg('🔌 Verificando conexão…');
+    fetch(_r0+_r1+'/auth/v1/health', {signal: AbortSignal.timeout(8000)})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(){ setAuthMsg(''); })
+      .catch(function(){
+        setAuthMsg('⚠️ Servidor indisponível. Verifique se o projeto Supabase está ativo em supabase.com/dashboard');
+      });
+
     _supaClient.auth.onAuthStateChange(function(event, session){
       _supaUser = session && session.user ? session.user : null;
       if(_supaUser){
@@ -6173,22 +6186,39 @@ function setAuthMsg(msg){
   if(el) el.textContent = msg;
 }
 
+function _supaErrMsg(msg){
+  if(!msg) return 'Erro desconhecido.';
+  const m = msg.toLowerCase();
+  if(m.includes('fetch') || m.includes('network') || m.includes('failed'))
+    return '⚠️ Sem conexão com o servidor. Verifique se o projeto Supabase está ativo em supabase.com/dashboard e se o site está sendo servido via HTTP (não file://).';
+  if(m.includes('invalid login') || m.includes('invalid credentials') || m.includes('email not confirmed'))
+    return '❌ E-mail ou senha incorretos.';
+  if(m.includes('already registered') || m.includes('user already'))
+    return '❌ Este e-mail já possui cadastro. Use "Entrar".';
+  if(m.includes('password') && m.includes('least'))
+    return '❌ A senha precisa ter pelo menos 6 caracteres.';
+  if(m.includes('rate limit'))
+    return '⏳ Muitas tentativas. Aguarde alguns minutos.';
+  return '❌ ' + msg;
+}
+
 function doAuth(){
   const email = (document.getElementById('auth-email')||{}).value||'';
   const pwd   = (document.getElementById('auth-pwd')||{}).value||'';
   if(!email || !pwd){ setAuthMsg('Preencha e-mail e senha.'); return; }
-  if(!_supaClient){ setAuthMsg('Erro de conexão. Recarregue a página.'); return; }
+  if(!_supaClient){ setAuthMsg('⚠️ Aguarde a conexão ou recarregue a página.'); return; }
+  if(pwd.length < 6){ setAuthMsg('❌ A senha precisa ter pelo menos 6 caracteres.'); return; }
   setAuthMsg('Aguarde…');
   if(_authMode === 'in'){
     _supaClient.auth.signInWithPassword({email:email, password:pwd}).then(function(res){
-      if(res.error){ setAuthMsg('❌ ' + (res.error.message||'Credenciais inválidas')); }
+      if(res.error){ setAuthMsg(_supaErrMsg(res.error.message)); }
       // success handled by onAuthStateChange
     });
   } else {
     _supaClient.auth.signUp({email:email, password:pwd}).then(function(res){
-      if(res.error){ setAuthMsg('❌ ' + res.error.message); return; }
+      if(res.error){ setAuthMsg(_supaErrMsg(res.error.message)); return; }
       if(res.data && res.data.user && !res.data.session){
-        setAuthMsg('📧 Verifique seu e-mail para confirmar a conta!');
+        setAuthMsg('📧 Verifique seu e-mail para confirmar o cadastro e depois faça login.');
       }
       // if session exists, onAuthStateChange handles it
     });
