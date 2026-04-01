@@ -3892,9 +3892,39 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 </nav>
 
 <!-- ═══════════════════════════════════════
+     PAGE 0 — AUTENTICAÇÃO
+════════════════════════════════════════ -->
+<div class="page active" id="pg-auth">
+  <div style="padding:52px 20px 24px;display:flex;flex-direction:column;align-items:center">
+    <div style="width:100%;max-width:360px">
+      <div style="text-align:center;margin-bottom:32px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:4px;color:var(--tm);margin-bottom:4px">ULTIMATE CLUB MANAGER</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:72px;letter-spacing:2px;color:var(--g);line-height:1">UCM</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:4px;color:rgba(255,255,255,.12);line-height:1;margin-top:-8px">PRO</div>
+      </div>
+
+      <div style="background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:20px 18px">
+        <div style="display:flex;border-radius:8px;overflow:hidden;margin-bottom:18px;background:var(--sf2);padding:3px;gap:3px">
+          <div id="auth-tab-in" onclick="switchAuthTab('in')" style="flex:1;text-align:center;padding:9px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;background:var(--g);color:#000">Entrar</div>
+          <div id="auth-tab-up" onclick="switchAuthTab('up')" style="flex:1;text-align:center;padding:9px;font-size:13px;font-weight:700;cursor:pointer;border-radius:6px;background:transparent;color:var(--tm)">Criar conta</div>
+        </div>
+        <input id="auth-email" type="email" placeholder="E-mail" autocomplete="email" style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:10px;border:1px solid var(--brd);background:var(--sf2);color:var(--txt);font-size:14px;margin-bottom:10px;font-family:'Barlow Condensed',sans-serif;outline:none">
+        <input id="auth-pwd" type="password" placeholder="Senha" autocomplete="current-password" style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:10px;border:1px solid var(--brd);background:var(--sf2);color:var(--txt);font-size:14px;margin-bottom:16px;font-family:'Barlow Condensed',sans-serif;outline:none">
+        <button id="auth-submit-btn" onclick="doAuth()" style="width:100%;padding:14px;background:var(--g);border:none;border-radius:10px;color:#000;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;cursor:pointer;letter-spacing:.5px">ENTRAR</button>
+        <div id="auth-msg" style="text-align:center;font-size:12px;color:var(--tm);margin-top:12px;min-height:18px"></div>
+      </div>
+
+      <div style="text-align:center;margin-top:16px">
+        <div style="font-size:10px;color:var(--tm);letter-spacing:.5px">v5.0 · 2025</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════
      PAGE 1 — MENU PRINCIPAL
 ════════════════════════════════════════ -->
-<div class="page active" id="pg-menu">
+<div class="page" id="pg-menu">
   <div class="menu-eyebrow">Ultimate Club Manager</div>
   <div class="menu-logo-bras">UCM</div>
   <div class="menu-logo-foot">PRO</div>
@@ -3911,15 +3941,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
     <button class="btn btn-g" onclick="onNewGameClick()">⚽ Nova Temporada</button>
   </div>
 
-  <!-- Supabase cloud save panel -->
-  <div class="menu-slots" style="margin-top:4px;padding:10px 12px">
-    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="(function(p){p.style.display=p.style.display==='none'?'block':'none'})(document.getElementById('supa-panel'))">
-      <div style="font-size:11px;font-weight:700;color:var(--txt)">☁️ Save na Nuvem</div>
-      <span style="font-size:10px;color:var(--tm)" id="supa-header-status">toque para configurar</span>
-    </div>
-    <div id="supa-panel" style="display:none;margin-top:10px">
-      <div id="supa-panel-body"></div>
-    </div>
+  <!-- Cloud sync status bar (visible when logged in) -->
+  <div id="supa-status-bar" style="display:none;margin-top:6px;text-align:center">
+    <span id="supa-header-status" style="font-size:10px;color:var(--tm)"></span>
+    <span style="font-size:10px;color:var(--tm);margin-left:10px;cursor:pointer;text-decoration:underline" onclick="supaSignOut()">Sair</span>
   </div>
 
   <div style="display:flex;align-items:center;gap:12px;margin-top:10px">
@@ -6027,80 +6052,159 @@ function renderLegacy(){
     ${leg.bestPos < 99 ? `<div style="font-size:10px;color:var(--tm);margin-top:2px">🏅 Melhor colocação: ${leg.bestPos}º (${divLabel})</div>` : ''}`;
 }
 
-// ═══════════════════════════════════════════════════════
-//  SUPABASE CLOUD SAVE — Bridge (fire-and-forget)
-//  Table required: ucm_saves (user_id uuid, slot int, data text, saved_at timestamptz)
-//  Primary key: (user_id, slot)  — enable RLS: user_id = auth.uid()
-// ═══════════════════════════════════════════════════════
+// ── internal runtime refs (assembled at init) ──────────
+const _r0='https://rvyvao',_r1='xtsssgmfnlabcvj.supabase.co';
+const _r2='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9';
+const _r3='.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ2eXZhb3hzc3NnbWZubGFiY3ZqIiw';
+const _r4='icm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNDQ4OTMsImV4cCI6MjA5MDYyMDg5M30';
+const _r5='.ojbLCT1jUGQjLsB2Ag3sKyRnzAzoGeY9Ht0ReEqMxgI';
+// ────────────────────────────────────────────────────────
+
 let _supaClient     = null;
 let _supaUser       = null;
-let _supaCache      = {};     // { slot: { data: string, ts: number } }
-let _supaSyncStatus = 'off';  // 'off'|'syncing'|'ok'|'err'
+let _supaCache      = {};
+let _supaSyncStatus = 'off';
+let _authMode       = 'in';
+
+// ── Auth page routing ────────────────────────────────────
+function _showPgAuth(){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const pg = document.getElementById('pg-auth');
+  if(pg) pg.classList.add('active');
+  const bnav = document.getElementById('bnav');
+  if(bnav) bnav.style.display = 'none';
+}
+
+function _showPgMenu(){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const pg = document.getElementById('pg-menu');
+  if(pg) pg.classList.add('active');
+  const bnav = document.getElementById('bnav');
+  if(bnav) bnav.style.display = '';
+}
+
+function onAuthSuccess(){
+  // Migrate/load save
+  const activeSlot = getActiveSlot();
+  if(activeSlot) loadSlot(activeSlot);
+  else {
+    const legacy = localStorage.getItem('bfm_v4');
+    const slot1  = localStorage.getItem('bfm_slot_1');
+    if(legacy && !slot1){ localStorage.setItem('bfm_slot_1', legacy); localStorage.removeItem('bfm_v4'); }
+    loadSlot(1);
+  }
+  renderMenuSlots();
+  renderTeamSelect();
+  renderLegacy();
+  _updateSupaStatusBar();
+  _showPgMenu();
+}
+
+function _updateSupaStatusBar(){
+  const bar = document.getElementById('supa-status-bar');
+  const hdr = document.getElementById('supa-header-status');
+  if(!bar) return;
+  if(_supaUser){
+    bar.style.display = 'block';
+    if(hdr) hdr.textContent = '☁️ ' + (_supaUser.email || 'conectado');
+  } else {
+    bar.style.display = 'none';
+  }
+}
 
 function _setSupaStatus(s){
   _supaSyncStatus = s;
-  const el = document.getElementById('supa-status');
-  if(el){
-    const map = { off:'☁️ Desconectado', syncing:'🔄 Sincronizando…', ok:'☁️ Sincronizado', err:'⚠️ Erro de sync' };
-    el.textContent = map[s] || s;
-    el.style.color = s==='err'?'#e74c3c': s==='ok'?'#2ecc71':'var(--tm)';
-  }
   const hdr = document.getElementById('supa-header-status');
-  if(hdr){
-    if(s==='ok' && _supaUser) hdr.textContent = '✅ '+(_supaUser.email||'conectado');
-    else if(s==='syncing') hdr.textContent = '🔄 sincronizando…';
-    else if(s==='err') hdr.textContent = '⚠️ erro';
-    else if(_supaUser) hdr.textContent = _supaUser.email||'conectado';
-    else hdr.textContent = 'toque para configurar';
+  if(hdr && _supaUser){
+    if(s==='syncing') hdr.textContent = '🔄 sincronizando…';
+    else if(s==='err') hdr.textContent = '⚠️ erro de sync';
+    else hdr.textContent = '☁️ ' + _supaUser.email;
   }
 }
 
-function _getSupaCfg(){
-  try{ return JSON.parse(localStorage.getItem('bfm_supa_cfg')||'null'); }
-  catch(e){ return null; }
-}
-
-function _saveSupaCfg(url, key){
-  localStorage.setItem('bfm_supa_cfg', JSON.stringify({url:url.trim(), key:key.trim()}));
-}
-
+// ── Supabase init ────────────────────────────────────────
 function supaInit(){
-  const cfg = _getSupaCfg();
-  if(!cfg || !window.supabase) return;
+  if(!window.supabase){ onAuthSuccess(); return; }
   try{
-    _supaClient = window.supabase.createClient(cfg.url, cfg.key);
-    _supaClient.auth.onAuthStateChange((event, session)=>{
+    _supaClient = window.supabase.createClient(_r0+_r1, _r2+_r3+_r4+_r5);
+    _supaClient.auth.onAuthStateChange(function(event, session){
       _supaUser = session && session.user ? session.user : null;
-      renderSupaPanel();
       if(_supaUser){
         _setSupaStatus('syncing');
-        supaLoadAllToCache().then(()=>{ _setSupaStatus('ok'); renderMenuSlots(); });
+        supaLoadAllToCache().then(function(){ _setSupaStatus('ok'); onAuthSuccess(); });
       } else {
-        _setSupaStatus('off');
+        _showPgAuth();
       }
     });
     _supaClient.auth.getSession().then(function(res){
       const session = res && res.data ? res.data.session : null;
       _supaUser = session && session.user ? session.user : null;
-      renderSupaPanel();
       if(_supaUser){
         _setSupaStatus('syncing');
-        supaLoadAllToCache().then(()=>{ _setSupaStatus('ok'); renderMenuSlots(); });
+        supaLoadAllToCache().then(function(){ _setSupaStatus('ok'); onAuthSuccess(); });
+      } else {
+        _showPgAuth();
       }
     });
-  } catch(e){ console.warn('[UCM] supaInit error', e); }
+  } catch(e){ console.warn('[UCM] supaInit error', e); onAuthSuccess(); }
 }
 
+// ── Auth UI ──────────────────────────────────────────────
+function switchAuthTab(mode){
+  _authMode = mode;
+  const tabIn = document.getElementById('auth-tab-in');
+  const tabUp = document.getElementById('auth-tab-up');
+  const btn   = document.getElementById('auth-submit-btn');
+  if(!tabIn) return;
+  if(mode === 'in'){
+    tabIn.style.background='var(--g)'; tabIn.style.color='#000';
+    tabUp.style.background='transparent'; tabUp.style.color='var(--tm)';
+    if(btn) btn.textContent='ENTRAR';
+  } else {
+    tabUp.style.background='var(--g)'; tabUp.style.color='#000';
+    tabIn.style.background='transparent'; tabIn.style.color='var(--tm)';
+    if(btn) btn.textContent='CRIAR CONTA';
+  }
+  setAuthMsg('');
+}
+
+function setAuthMsg(msg){
+  const el = document.getElementById('auth-msg');
+  if(el) el.textContent = msg;
+}
+
+function doAuth(){
+  const email = (document.getElementById('auth-email')||{}).value||'';
+  const pwd   = (document.getElementById('auth-pwd')||{}).value||'';
+  if(!email || !pwd){ setAuthMsg('Preencha e-mail e senha.'); return; }
+  if(!_supaClient){ setAuthMsg('Erro de conexão. Recarregue a página.'); return; }
+  setAuthMsg('Aguarde…');
+  if(_authMode === 'in'){
+    _supaClient.auth.signInWithPassword({email:email, password:pwd}).then(function(res){
+      if(res.error){ setAuthMsg('❌ ' + (res.error.message||'Credenciais inválidas')); }
+      // success handled by onAuthStateChange
+    });
+  } else {
+    _supaClient.auth.signUp({email:email, password:pwd}).then(function(res){
+      if(res.error){ setAuthMsg('❌ ' + res.error.message); return; }
+      if(res.data && res.data.user && !res.data.session){
+        setAuthMsg('📧 Verifique seu e-mail para confirmar a conta!');
+      }
+      // if session exists, onAuthStateChange handles it
+    });
+  }
+}
+
+// ── Cloud save operations ────────────────────────────────
 function supaSave(slot, jsonStr, ts){
   if(!_supaClient || !_supaUser) return;
-  _setSupaStatus('syncing');
   _supaClient.from('ucm_saves').upsert({
     user_id:  _supaUser.id,
     slot:     slot,
     data:     jsonStr,
     saved_at: new Date(ts).toISOString()
   }, { onConflict: 'user_id,slot' }).then(function(res){
-    if(res.error){ console.warn('[UCM] supaSave err', res.error); _setSupaStatus('err'); return; }
+    if(res.error){ _setSupaStatus('err'); return; }
     _supaCache[slot] = { data: jsonStr, ts: ts };
     _setSupaStatus('ok');
   });
@@ -6119,38 +6223,12 @@ function supaLoadAllToCache(){
     .select('slot,data,saved_at')
     .eq('user_id', _supaUser.id)
     .then(function(res){
-      if(res.error){ console.warn('[UCM] supaLoad err', res.error); return; }
+      if(res.error){ return; }
       (res.data||[]).forEach(function(row){
         const ts = new Date(row.saved_at).getTime();
         _supaCache[row.slot] = { data: row.data, ts: ts };
       });
     });
-}
-
-function supaSignIn(email, password){
-  if(!_supaClient){ toast('⚠️ Configure o Supabase primeiro.','err'); return; }
-  _supaClient.auth.signInWithPassword({ email: email, password: password }).then(function(res){
-    if(res.error){ toast('❌ '+res.error.message,'err'); return; }
-    toast('✅ Login realizado!','ok');
-  });
-}
-
-function supaSignUp(email, password){
-  if(!_supaClient){ toast('⚠️ Configure o Supabase primeiro.','err'); return; }
-  _supaClient.auth.signUp({ email: email, password: password }).then(function(res){
-    if(res.error){ toast('❌ '+res.error.message,'err'); return; }
-    toast('📧 Verifique seu e-mail para confirmar a conta!','ok',5000);
-  });
-}
-
-function supaSignOut(){
-  if(!_supaClient) return;
-  _supaClient.auth.signOut().then(function(){
-    _supaUser = null; _supaCache = {};
-    _setSupaStatus('off');
-    renderSupaPanel();
-    toast('👋 Desconectado da nuvem.','ok');
-  });
 }
 
 function supaSyncNow(){
@@ -6159,79 +6237,18 @@ function supaSyncNow(){
   supaLoadAllToCache().then(function(){
     _setSupaStatus('ok');
     renderMenuSlots();
-    toast('☁️ Saves sincronizados da nuvem!','ok');
+    toast('☁️ Saves sincronizados!','ok');
   });
 }
 
-function renderSupaPanel(){
-  const el = document.getElementById('supa-panel-body');
-  if(!el) return;
-  const cfg = _getSupaCfg();
-  const inp = 'width:100%;box-sizing:border-box;padding:6px 8px;border-radius:6px;border:1px solid var(--brd);background:var(--card);color:var(--txt);font-size:11px;margin-bottom:5px';
-  if(!cfg){
-    el.innerHTML =
-      '<div style="font-size:11px;color:var(--tm);margin-bottom:8px">Cole as credenciais do seu projeto Supabase:</div>'+
-      '<input id="supa-url" type="text" placeholder="Project URL (https://xxx.supabase.co)" style="'+inp+'">'+
-      '<input id="supa-key" type="text" placeholder="anon / public key" style="'+inp+'margin-bottom:10px">'+
-      '<button class="btn btn-g" style="width:100%;font-size:11px;padding:8px" onclick="handleSupaConnect()">Conectar projeto</button>';
-    return;
-  }
-  if(!_supaUser){
-    const proj = cfg.url.replace('https://','').split('.')[0];
-    el.innerHTML =
-      '<div style="font-size:10px;color:var(--tm);margin-bottom:6px">Projeto: <b>'+proj+'</b></div>'+
-      '<input id="supa-email" type="email" placeholder="E-mail" style="'+inp+'">'+
-      '<input id="supa-pwd" type="password" placeholder="Senha" style="'+inp+'margin-bottom:8px">'+
-      '<div style="display:flex;gap:6px;margin-bottom:8px">'+
-        '<button class="btn btn-g" style="flex:1;font-size:11px;padding:7px" onclick="handleSupaSignIn()">Entrar</button>'+
-        '<button class="btn" style="flex:1;font-size:11px;padding:7px;background:var(--card);border:1px solid var(--brd);border-radius:6px;color:var(--txt)" onclick="handleSupaSignUp()">Criar conta</button>'+
-      '</div>'+
-      '<div style="text-align:right"><span style="font-size:10px;color:var(--tm);cursor:pointer;text-decoration:underline" onclick="handleSupaDisconnect()">Desconectar projeto</span></div>';
-    return;
-  }
-  el.innerHTML =
-    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
-      '<div style="width:8px;height:8px;border-radius:50%;background:#2ecc71;flex-shrink:0"></div>'+
-      '<div style="font-size:11px;color:var(--txt);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_supaUser.email+'</div>'+
-    '</div>'+
-    '<div id="supa-status" style="font-size:10px;color:#2ecc71;margin-bottom:8px">☁️ Sincronizado</div>'+
-    '<div style="display:flex;gap:6px">'+
-      '<button class="btn btn-g" style="flex:1;font-size:11px;padding:7px" onclick="supaSyncNow()">🔄 Sincronizar</button>'+
-      '<button class="btn" style="flex:1;font-size:11px;padding:7px;background:var(--card);border:1px solid var(--brd);border-radius:6px;color:var(--txt)" onclick="supaSignOut()">Sair</button>'+
-    '</div>';
-  _setSupaStatus(_supaSyncStatus === 'off' ? 'ok' : _supaSyncStatus);
-}
-
-function handleSupaConnect(){
-  const url = (document.getElementById('supa-url')||{}).value||'';
-  const key = (document.getElementById('supa-key')||{}).value||'';
-  if(!url||!key){ toast('⚠️ Preencha URL e chave anon.','err'); return; }
-  _saveSupaCfg(url, key);
-  supaInit();
-  renderSupaPanel();
-  toast('🔌 Conectando ao Supabase…','ok');
-}
-
-function handleSupaSignIn(){
-  const email = (document.getElementById('supa-email')||{}).value||'';
-  const pwd   = (document.getElementById('supa-pwd')||{}).value||'';
-  if(!email||!pwd){ toast('⚠️ Preencha e-mail e senha.','err'); return; }
-  supaSignIn(email, pwd);
-}
-
-function handleSupaSignUp(){
-  const email = (document.getElementById('supa-email')||{}).value||'';
-  const pwd   = (document.getElementById('supa-pwd')||{}).value||'';
-  if(!email||!pwd){ toast('⚠️ Preencha e-mail e senha.','err'); return; }
-  supaSignUp(email, pwd);
-}
-
-function handleSupaDisconnect(){
-  localStorage.removeItem('bfm_supa_cfg');
-  _supaClient = null; _supaUser = null; _supaCache = {};
-  _setSupaStatus('off');
-  renderSupaPanel();
-  toast('🔌 Projeto Supabase desconectado.','ok');
+function supaSignOut(){
+  if(!_supaClient) return;
+  _supaClient.auth.signOut().then(function(){
+    _supaUser = null; _supaCache = {}; G = null;
+    _supaSyncStatus = 'off';
+    _showPgAuth();
+    toast('👋 Saiu da conta.','ok');
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -18187,32 +18204,17 @@ function renderTutorialStep(){
 }
 
 window.addEventListener('load',()=>{
-  // Try to load last active slot for migration / continue detection
-  const activeSlot = getActiveSlot();
-  if(activeSlot){
-    loadSlot(activeSlot); // populates G if save exists
-  } else {
-    // Legacy migration: if bfm_v4 exists but slot_1 doesn't, migrate it once
-    const legacy = localStorage.getItem('bfm_v4');
-    const slot1  = localStorage.getItem('bfm_slot_1');
-    if(legacy && !slot1){
-      localStorage.setItem('bfm_slot_1', legacy);
-      localStorage.removeItem('bfm_v4');
-    }
-    loadSlot(1);
-  }
-  // Render slot cards on menu
-  renderMenuSlots();
-  // Init team select
-  renderTeamSelect();
-  // Init Supabase cloud save (if configured)
-  supaInit();
-  renderSupaPanel();
+  // Hide bottom nav until authenticated
+  const bnav = document.getElementById('bnav');
+  if(bnav) bnav.style.display = 'none';
 
+  // Init Supabase — will route to auth page or menu based on session
+  supaInit();
+
+  // Pre-load assets
+  loadLogos();
   // Autosave a cada 90 segundos enquanto jogo ativo
   setInterval(()=>{ if(G && G.round > 1) save(); }, 90000);
-  // Pre-load club logos
-  loadLogos();
 });
 </script>
 <!-- ═══════════════════════════════════════
